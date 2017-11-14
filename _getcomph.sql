@@ -9,7 +9,7 @@ declare
   l_sortcol      varchar2(30) := '~sortcol.';
   l_sortlimit    number := ~sortlimit.;
   l_filter       varchar2(4000) := q'[~filter.]';
-  l_embeded      boolean := case when upper('&embeded.')='TRUE' then true else false end;
+  l_embeded      boolean := case when upper('~embeded.')='TRUE' then true else false end;
   
   type t_my_rec is record(
     dbid            number,
@@ -47,11 +47,15 @@ declare
 q'{
 @@awr.css
 }';
- 
+
+--^'||q'^
+
   l_noncomp clob:=
 q'{ 
 @@__noncomp
 }';
+
+--^'||q'^
 
   l_getqlist  clob:=
 q'{
@@ -104,7 +108,7 @@ select rownum "#", x.*
          group by sql_id having sum(&sortcol.) > &sortlimit.
          order by tot_&sortcol. desc) x
 }';
-
+--^'||q'^
   l_sqlstat_data  clob:=
 q'{
 select unique 
@@ -114,14 +118,16 @@ select unique
         select 'DB1' src, x.* from dba_hist_sqlstat x 
          where sql_id='&l_sql_id'
            and dbid=&dbid1. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256
+           and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
         union all
         select 'DB2' src, x.* from dba_hist_sqlstat&dblnk. x
          where sql_id='&l_sql_id'
            and dbid=&dbid2. and snap_id between &start_snap2. and &end_snap2. and instance_number between 1 and 256
+           and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
        )
      order by dbid,snap_id,instance_number,plan_hash_value,PARSING_USER_ID,module,action
 }';
-
+--^'||q'^
   l_ash_data  clob:=
 q'{
 select unique src source, dbid,snap_id,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call       
@@ -145,7 +151,7 @@ select unique src source, dbid,snap_id,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_val
       )
     order by 6,dbid,sql_plan_hash_value,user_id,module,action
 }';
-
+--^'||q'^
   l_wait_profile clob :=
 q'{
 with locals as ( 
@@ -172,7 +178,7 @@ with locals as (
                  from locals full outer join remotes using (wait_class,event)
                  order by 1 nulls first,2
 }';  
-  
+--^'||q'^  
   l_ash_plan clob :=
 q'{
 with db1 as (select rownum n, x.* from (
@@ -209,6 +215,8 @@ select
 from db1 a full outer join db2 b on (a.n=b.n)
 }';
 
+--^'||q'^
+
   l_ash_span clob :=
 q'{
 with db1 as (select rownum n, 'DB1' src, x.* from (
@@ -243,7 +251,7 @@ select
    b.src source, b.sample_time "Hour",b.avg_cnt "Avg number of sess",b.max_cnt "Max number of sess"
 from db1 a full outer join db2 b on (a.n=b.n)
 }';
-
+--^'||q'^
   l_sysmetr clob :=
 q'{
 with a as (select * from dba_hist_sysmetric_history&dblnk. where dbid=&dbid. and snap_id between &start_snap. and &end_snap. and instance_number=&inst_id.)
@@ -307,7 +315,7 @@ select to_char(end_time,'yyyy-mm-dd hh24:mi:ss') end_time, 'CALLS' metric_name1,
    'CALLS' as CALLS   ))
 order by 1,2 desc
 }';
-
+--^'||q'^
   cursor c_title1 is
     select 
       DB_NAME, sn.DBID,version,host_name,
@@ -350,6 +358,7 @@ $END
               (select 'DB1' src, x.* from dba_hist_sqlstat x 
                 where sql_id=p_sql_id
                   and dbid=l_dbid1 and snap_id between l_start_snap1 and l_end_snap1 and instance_number between 1 and 256
+                  and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
                 union all
                select 'DB2' src, x.* 
 $IF '~dblnk.' is not null $THEN   
@@ -358,10 +367,11 @@ $ELSE
                  from dba_hist_sqlstat x
 $END                 
                 where sql_id=p_sql_id
-                  and dbid=l_dbid2 and snap_id between l_start_snap2 and l_end_snap2 and instance_number between 1 and 256)) x
+                  and dbid=l_dbid2 and snap_id between l_start_snap2 and l_end_snap2 and instance_number between 1 and 256
+                  and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0)) x
                 order by src, dbid, plan_hash_value;
   r_getsqlperm c_getsqlperm%rowtype;
-  
+--^'||q'^  
   cursor c_sqlstat1(p_sql_id varchar2, p_plan_hash number, p_dbid number, p_start_snap number, p_end_snap number) is
     select 
         s.sql_id
@@ -452,8 +462,10 @@ $END
     group by s.dbid,s.plan_hash_value,s.sql_id;
   r_stats2 c_sqlstat2%rowtype; 
 
-@@__procs
+--^'||q'^
   
+@@__procs
+--^'||q'^  
   procedure pr1(p_msg varchar2) is begin l_text:=l_text||p_msg||chr(10); end;
   procedure pr(length1 number,length2 number, par1 varchar2, par2 varchar2, par3 varchar2 default null) 
   is 
@@ -500,7 +512,7 @@ $ELSE
 $END
     end if;
   end;
-
+--^'||q'^
 procedure prepare_script_comp(p_script in out clob) is 
   l_scr clob := p_script;
   l_line varchar2(32765);
@@ -518,6 +530,8 @@ begin
   --if not p_plsql then p_script:=replace(p_script,';'); end if;
 end;
 begin
+
+--^'||q'^
 
 if not l_embeded then 
    p(HTF.HTMLOPEN);
@@ -560,7 +574,7 @@ end if;
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
    p(HTF.BR);
    p(HTF.BR); 
-
+--^'||q'^
    open c_title1;
    fetch c_title1 into r_title1;
    close c_title1;
@@ -600,7 +614,7 @@ end if;
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
    p(HTF.BR);
    p(HTF.BR);     
-
+--^'||q'^
    
    --loop through all sqls
    open l_all_sqls for l_getqlist;
@@ -638,7 +652,7 @@ end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: '||my_rec(a).src||': '||l_db_header(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
        end loop comp_inner;
      end loop comp_outer;      
-     
+--^'||q'^     
      p(HTF.BR); 
      p(HTF.BR); 
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
@@ -666,8 +680,7 @@ end if;
      p(HTF.BR);
      p(HTF.BR); 
      
-     
-
+--^'||q'^
      
      --loop through all pairs ofplans to compare     
       <<comp_outer>>
@@ -698,7 +711,7 @@ end if;
          
          --load plans
          get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p1);
-         
+--^'||q'^         
          l_single_plan := true;
          if a<>b and my_rec(a).plan_hash_value<>my_rec(b).plan_hash_value and my_rec(a).plan_hash_value<>0 and my_rec(b).plan_hash_value<>0 then
            l_single_plan := false;
@@ -727,7 +740,7 @@ end if;
          end if;
          
          if l_max_width < 50 then l_max_width:= 50; end if;
-         
+--^'; l_script1 clob := q'^         
          l_text:=null;   
          pr(l_max_width,l_stat_ln,'Metric             Value',                          'Metric             Value',    'Delta, %            Delta to ELA/EXEC, %');
          pr(l_max_width,l_stat_ln,'EXECS:             '||r_stats1.EXECUTIONS_DELTA,    'EXECS:             '||r_stats2.EXECUTIONS_DELTA,    round(100*((r_stats2.EXECUTIONS_DELTA-r_stats1.EXECUTIONS_DELTA)        /(case when r_stats2.EXECUTIONS_DELTA=0 then case when r_stats1.EXECUTIONS_DELTA=0 then 1 else r_stats1.EXECUTIONS_DELTA end else r_stats2.EXECUTIONS_DELTA end)),2)||'%');
@@ -771,7 +784,8 @@ end if;
          pr(l_max_width,l_stat_ln,'IOWT/EXEC(MS)5ms:  '||r_stats1.io_wait_pe_5ms,      'IOWT/EXEC(MS)5ms:  '||r_stats2.io_wait_pe_5ms,      round(100*((r_stats2.io_wait_pe_5ms-r_stats1.io_wait_pe_5ms)            /(case when r_stats2.io_wait_pe_5ms=0 then case when r_stats1.io_wait_pe_5ms=0 then 1 else r_stats1.io_wait_pe_5ms end else r_stats2.io_wait_pe_5ms end)),2)||'%');      
          pr(l_max_width,l_stat_ln,'IOWAIT(SEC)5ms:    '||r_stats1.io_wait_5ms,         'IOWAIT(SEC)5ms:    '||r_stats2.io_wait_5ms,         round(100*((r_stats2.io_wait_5ms-r_stats1.io_wait_5ms)                  /(case when r_stats2.io_wait_5ms=0 then case when r_stats1.io_wait_5ms=0 then 1 else r_stats1.io_wait_5ms end else r_stats2.io_wait_5ms end)),2)||'%');      
          
-         
+--^'||q'^
+
          --Statistics comparison
          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Statistics comparison for '||l_sql_id,cname=>'stat_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
          p(HTF.BR);
@@ -801,7 +815,7 @@ end if;
          p(HTF.BR);
          p(HTF.BR);  
          
-         
+ --^'||q'^        
          --ASH plan statistics
          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH plan statistics '||l_sql_id,cname=>'ash_plan_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
          p(HTF.BR);
@@ -840,7 +854,7 @@ end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);        
-
+--^'||q'^
          l_text:=null; 
          --plans
          if l_single_plan then
@@ -878,7 +892,7 @@ end if;
              pr1(r1 || case when r2 is null then '*' else '-' || r2 end);
            end if;
          end loop print_plan_comparison;
-         
+--^'||q'^         
          --Plans comparison
          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
          p(HTF.BR);      
@@ -927,7 +941,7 @@ end if;
    p(HTF.BR);  
    p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>'System metrics for DB2',cname=>'sysmetr2',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
    p(HTF.BR);  
-   
+--^'||q'^   
    --db2 sysmetrics
    for i in (select unique INSTANCE_NUMBER from dba_hist_database_instance where dbid=l_dbid2 order by 1)
    loop
@@ -964,4 +978,3 @@ if not l_embeded then
    p((HTF.HTMLCLOSE));
 end if;   
 end;
-/

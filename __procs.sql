@@ -123,8 +123,8 @@ exception
 end;
     
 procedure print_text_as_table(p_text clob, p_t_header varchar2,p_width number, p_search varchar2 default null, p_replacement varchar2 default null) is
-  l_line varchar2(32765);  l_eof number;  l_iter number := 1; 
-  l_text clob := p_text||chr(10);
+  l_line varchar2(32765);  l_eof number;  l_iter number; l_length number;
+  l_text clob;
 begin
   p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_t_header||'"'));
   if p_t_header<>'#FIRST_LINE#' then
@@ -132,7 +132,20 @@ begin
     p(HTF.TABLEHEADER(cvalue=>replace(p_t_header,' ','&nbsp;'),calign=>'left',cattributes=>'class="awrbg" scope="col"'));
     p(HTF.TABLEROWCLOSE);
   end if;
-
+  
+  if instr(p_text,chr(10))=0 then
+    l_iter := 1;
+	l_length:=dbms_lob.getlength(p_text);
+	loop
+      l_text := l_text||substr(p_text,l_iter,200)||chr(10);
+	  l_iter:=l_iter+200;
+	  exit when l_iter>=l_length;
+	end loop;
+  else
+    l_text := p_text||chr(10);
+  end if;
+  
+  l_iter := 1; 
   loop
     l_eof:=instr(l_text,chr(10));
     l_line:=substr(l_text,1,l_eof);
