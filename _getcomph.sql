@@ -32,6 +32,7 @@ declare
   l_all_sqls sys_refcursor;
   l_all_perms sys_refcursor;
   l_sql_id varchar2(30);
+  l_next_sql_id varchar2(30);
   l_total  number;
   l_rn     number;
   l_cnt    number;
@@ -60,7 +61,7 @@ q'{
   l_getqlist  clob:=
 q'{
 select rownum "#", x.*
-  from (select sql_id, sum(&sortcol.) tot_&sortcol.
+  from (select sql_id, sum(&sortcol.) tot_&sortcol., count(unique PLAN_HASH_VALUE) unique_plan_hash
           from (select db2.*
                   from (select sql_id --,CPU_TIME_DELTA,ELAPSED_TIME_DELTA,BUFFER_GETS_DELTA,EXECUTIONS_DELTA
                           from dba_hist_sqlstat
@@ -462,6 +463,9 @@ $END
     group by s.dbid,s.plan_hash_value,s.sql_id;
   r_stats2 c_sqlstat2%rowtype; 
 
+  type t_sqls is table of varchar2(100) index by pls_integer;
+  l_sqls t_sqls;
+  
 --^'||q'^
   
 @@__procs
@@ -561,7 +565,7 @@ end if;
   
 
    p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Parameters',cname=>'parameters',cattributes=>'class="awr"'),cattributes=>'class="awr"'));   
-   l_text:='Input report parameters:'||chr(10);
+   l_text:='Report input parameters:'||chr(10);
    l_text:=l_text||'DB1: DBID: '||l_dbid1||'; snap_id between '||(l_start_snap1-1)||' and '||l_end_snap1||chr(10);
    l_text:=l_text||'DB2: DBID: '||l_dbid2||'; snap_id between '||(l_start_snap2-1)||' and '||l_end_snap2||chr(10);
    l_text:=l_text||'DB Link: <'||l_dblink||'>'||chr(10);
@@ -609,20 +613,37 @@ end if;
    p(HTF.BR);
    prepare_script_comp(l_getqlist);
    --p(l_getqlist);
-   print_table_html(l_getqlist,400,'SQL list',p_search=>'SQL_ID',p_replacement=>HTF.ANCHOR (curl=>'#sql_\1',ctext=>'\1',cattributes=>'class="awr1"'));
+   print_table_html(l_getqlist,600,'SQL list',p_search=>'SQL_ID',p_replacement=>HTF.ANCHOR (curl=>'#sql_\1',ctext=>'\1',cattributes=>'class="awr1"'));
    p(HTF.BR);
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
    p(HTF.BR);
    p(HTF.BR);     
 --^'||q'^
    
-   --loop through all sqls
+   --getting sqls list
    open l_all_sqls for l_getqlist;
-   <<query_list_loop>>
+   <<query_list_creating>>
    loop
-     fetch l_all_sqls into l_rn, l_sql_id, l_total;
-     exit when l_all_sqls%notfound;
-
+     fetch l_all_sqls into l_rn, l_sql_id, l_total, l_cnt; --l_total, l_cnt is not used so far
+     exit when l_all_sqls%notfound;   
+     l_sqls(l_rn):=l_sql_id;
+   end loop query_list_creating;
+   close l_all_sqls;
+   
+   --loop through all sqls
+   --open l_all_sqls for l_getqlist;
+   
+   <<query_list_loop>>
+   for n in 1..l_sqls.count
+   loop
+     --fetch l_all_sqls into l_rn, l_sql_id, l_total;
+     --exit when l_all_sqls%notfound;
+     
+     l_rn:=n;
+     l_sql_id:=l_sqls(l_rn);
+     
+     if l_sqls.exists(l_rn+1) then l_next_sql_id:=l_sqls(l_rn+1); else l_next_sql_id:=null; end if;
+     
      --get list of all plans
      my_rec.delete;
      l_cnt:=1;
@@ -655,6 +676,7 @@ end if;
 --^'||q'^     
      p(HTF.BR); 
      p(HTF.BR); 
+     if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
      p(HTF.BR);
      p(HTF.BR);  
@@ -666,6 +688,8 @@ end if;
      print_table_html(l_sql,1500,'SQL stat data',p_style1 =>'awrncbbt',p_style2 =>'awrcbbt');
      p(HTF.BR);
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
+     if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
+     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
      p(HTF.BR);
      p(HTF.BR);  
      p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH data for '||l_sql_id,cname=>'ash_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
@@ -676,6 +700,7 @@ end if;
      p(HTF.BR);  
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
      p(HTF.BR);
+     if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
      p(HTF.BR);
      p(HTF.BR); 
@@ -702,6 +727,7 @@ end if;
          p(HTF.BR); 
          p(HTF.BR); 
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR); 
          p(HTF.BR); 
@@ -795,6 +821,7 @@ end if;
          p(HTF.BR);
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
          p(HTF.BR);
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);          
@@ -811,6 +838,7 @@ end if;
          p(HTF.BR);
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
          p(HTF.BR);      
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);  
@@ -833,6 +861,7 @@ end if;
          p(HTF.BR);
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
          p(HTF.BR);      
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);  
@@ -851,6 +880,7 @@ end if;
          p(HTF.BR);
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
          p(HTF.BR);      
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);        
@@ -902,13 +932,14 @@ end if;
          p(HTF.BR);
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
          p(HTF.BR);
+         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
          p(HTF.BR);
          p(HTF.BR);          
        end loop comp_inner;
      end loop comp_outer;
    end loop query_list_loop;
-   close l_all_sqls;
+   --close l_all_sqls;
    
    p(HTF.BR);
    p(HTF.BR);  
