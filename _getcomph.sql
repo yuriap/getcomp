@@ -28,6 +28,9 @@ declare
   type t_db_header is table of t_r_db_header index by varchar2(10);
   l_db_header t_db_header;
   
+  l_crsr sys_refcursor;
+  l_plsql_output clob;
+  
   l_single_plan boolean;
   l_all_sqls sys_refcursor;
   l_all_perms sys_refcursor;
@@ -112,8 +115,8 @@ select rownum "#", x.*
 --^'||q'^
   l_sqlstat_data  clob:=
 q'{
-select unique 
-       src Source,instance_number inst,dbid,snap_id,plan_hash_value plan_hash,PARSING_USER_ID,parsing_schema_name parsing_schema,module,action
+select  
+       src Source,count(1) cnt, plan_hash_value plan_hash,PARSING_USER_ID,parsing_schema_name parsing_schema,module,action
      from 
        (
         select 'DB1' src, x.* from dba_hist_sqlstat x 
@@ -126,12 +129,13 @@ select unique
            and dbid=&dbid2. and snap_id between &start_snap2. and &end_snap2. and instance_number between 1 and 256
            and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
        )
-     order by dbid,snap_id,instance_number,plan_hash_value,PARSING_USER_ID,module,action
+     group by src,plan_hash_value,PARSING_USER_ID,parsing_schema_name,module,action
+     order by 1,2 desc
 }';
 --^'||q'^
   l_ash_data  clob:=
 q'{
-select unique src source, dbid,snap_id,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call       
+select src source,count(1) cnt,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call       
     from 
       (
        select 'DB1' src, x.*,
@@ -150,7 +154,8 @@ select unique src source, dbid,snap_id,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_val
           and (dbid=&dbid2. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256)
           --and rownum<11
       )
-    order by 6,dbid,sql_plan_hash_value,user_id,module,action
+    group by src, sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call
+    order by 1,2 desc
 }';
 --^'||q'^
   l_wait_profile clob :=
@@ -221,7 +226,7 @@ from db1 a full outer join db2 b on (a.n=b.n)
   l_ash_span clob :=
 q'{
 with db1 as (select rownum n, 'DB1' src, x.* from (
-            select to_char(trunc(sample_time, 'hh'),'YYYY-MON-DD HH24') sample_time, round(avg(c)) avg_cnt, max(c) max_cnt
+            select to_char(trunc(sample_time, 'hh'),'YYYY-MON-DD HH24') tim, round(avg(c)) avg_cnt, max(c) max_cnt
               from (select sample_time,sql_id, count(1) c
                       from dba_hist_active_sess_history
                      where dbid = &dbid1.
@@ -232,10 +237,10 @@ with db1 as (select rownum n, 'DB1' src, x.* from (
                        and SQL_PLAN_HASH_VALUE=decode(&plan_hash1.,0,SQL_PLAN_HASH_VALUE,&plan_hash1.)
                      group by sample_time,sql_id)
              group by trunc(sample_time, 'hh')
-             order by 1
+             order by trunc(sample_time, 'hh')
              )x),
 db2 as (select rownum n, 'DB2' src, x.* from (
-            select to_char(trunc(sample_time, 'hh'),'YYYY-MON-DD HH24') sample_time, round(avg(c)) avg_cnt, max(c)max_cnt
+            select to_char(trunc(sample_time, 'hh'),'YYYY-MON-DD HH24') tim, round(avg(c)) avg_cnt, max(c)max_cnt
               from (select sample_time,sql_id, count(1) c
                       from dba_hist_active_sess_history&dblnk.
                      where dbid = &dbid2.
@@ -246,11 +251,12 @@ db2 as (select rownum n, 'DB2' src, x.* from (
                        and SQL_PLAN_HASH_VALUE=decode(&plan_hash2.,0,SQL_PLAN_HASH_VALUE,&plan_hash2.)
                      group by sample_time,sql_id)
              group by trunc(sample_time, 'hh')
-             order by 1)x)
+             order by trunc(sample_time, 'hh'))x)
 select
-   a.src source, a.sample_time "Hour",a.avg_cnt "Avg number of sess",a.max_cnt "Max number of sess",
-   b.src source, b.sample_time "Hour",b.avg_cnt "Avg number of sess",b.max_cnt "Max number of sess"
+   a.src source, a.tim "Hour",a.avg_cnt "Avg number of sess",a.max_cnt "Max number of sess",
+   b.src source, b.tim "Hour",b.avg_cnt "Avg number of sess",b.max_cnt "Max number of sess"
 from db1 a full outer join db2 b on (a.n=b.n)
+order by a.n nulls last, b.n nulls last
 }';
 --^'||q'^
   l_sysmetr clob :=
@@ -369,7 +375,11 @@ $ELSE
 $END                 
                 where sql_id=p_sql_id
                   and dbid=l_dbid2 and snap_id between l_start_snap2 and l_end_snap2 and instance_number between 1 and 256
-                  and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0)) x
+                  and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
+$IF '~dblnk.' is null $THEN  
+                  and case when instr(upper(l_filter), 'SQL_ID=')>0 then 0 else 1 end = 1 -- when analyzing a single sql in a local DB, do not mess with excessive plan comparison from DB2.
+$END                                  
+                  )) x
                 order by src, dbid, plan_hash_value;
   r_getsqlperm c_getsqlperm%rowtype;
 --^'||q'^  
@@ -557,9 +567,10 @@ end if;
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#parameters',ctext=>'Parameters',cattributes=>'class="awr"')));
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#db_desc',ctext=>'Databases description',cattributes=>'class="awr"')));
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_list',ctext=>'SQL list',cattributes=>'class="awr"')));
+ if instr(upper(l_filter), 'SQL_ID=')=0 then   
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sysmetr',ctext=>'System metrics',cattributes=>'class="awr"')));
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#noncomp',ctext=>'Non-comparable queries',cattributes=>'class="awr"')));
-
+  end if;
    p(HTF.BR);
    p(HTF.BR); 
   
@@ -658,7 +669,21 @@ end if;
      
      p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'#'||l_rn||' Comparison of '||l_sql_id,cname=>'sql_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
      p(HTF.BR);
-     p(HTF.BR); 
+     p(HTF.BR);
+
+     l_sql:=q'[select x.sql_text text from dba_hist_sqltext x where sql_id=']'||l_sql_id||q'[' and rownum=1]'||chr(10);
+     open l_crsr for l_sql;
+     fetch l_crsr into l_plsql_output;
+     if l_crsr%found then
+       print_text_as_table(p_text=>l_plsql_output,p_t_header=>'SQL text',p_width=>1000);
+     else
+       print_text_as_table(p_text=>'No SQL data found.',p_t_header=>'SQL text',p_width=>500);
+     end if;   
+     close l_crsr;
+   
+     p(HTF.BR);
+     p(HTF.BR);
+     
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sqlst_'||l_sql_id,ctext=>'SQL stat data',cattributes=>'class="awr"')));
      p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#ash_'||l_sql_id,ctext=>'ASH data',cattributes=>'class="awr"')));
      p(HTF.BR); 
@@ -898,10 +923,6 @@ end if;
          end if;
          if my_rec(a).plan_hash_value=0 then
            pr1('ATTENTION: no plan available, plan_hash_value=0');
-           pr1('-----------------------------------------------');
-           select substr(sql_text,1,4000) into l_sql from dba_hist_sqltext where sql_id = l_sql_id and dbid in ( l_dbid1, l_dbid2 ) and rownum<2;
-           pr1(l_sql);
-           pr1(rpad('-',l_max_width+1,'-'));
          end if;
       
          <<print_plan_comparison>>
@@ -943,6 +964,8 @@ end if;
    
    p(HTF.BR);
    p(HTF.BR);  
+   
+ if instr(upper(l_filter), 'SQL_ID=')=0 then   
    p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>'System metrics',cname=>'sysmetr',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
    p(HTF.BR);
    
@@ -952,7 +975,7 @@ end if;
    p(HTF.BR);  
    p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>'System metrics for DB1',cname=>'sysmetr1',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
    p(HTF.BR);   
-   
+
    --db1 sysmetrics
    for i in (select unique INSTANCE_NUMBER from dba_hist_database_instance where dbid=l_dbid1 order by 1)
    loop
@@ -1001,6 +1024,8 @@ end if;
    p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
    p(HTF.BR);
    p(HTF.BR);   
+   
+ end if;
    
    p(HTF.BR);
    p(HTF.BR);   
