@@ -22,7 +22,7 @@ begin
               from dba_hist_sqlstat 
 			 where plan_hash_value<>0 
 			   and parsing_schema_name <> 'SYS'
-			   and action not like 'ORA$%'
+			   and nvl(action,'@#$') not like 'ORA$%'
                and decode(module, 'performance_info', 0, 1) = 1
                and decode(module, 'MMON_SLAVE', 0, 1) = 1
                and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0			   
