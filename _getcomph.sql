@@ -10,11 +10,19 @@ declare
   l_sortlimit    number := ~sortlimit.;
   l_filter       varchar2(4000) := q'[~filter.]';
   l_embeded      boolean := case when upper('~embeded.')='TRUE' then true else false end;
+  l_single_sql_report number := case when instr(upper(l_filter), 'SQL_ID=')>0 
+                                      and l_dbid1=l_dbid2 
+                                      and l_start_snap1=l_start_snap2 
+                                      and l_end_snap1=l_end_snap2 
+                                      and l_dblink is null 
+                                      then 1 else 0 end;
   
   type t_my_rec is record(
     dbid            number,
     plan_hash_value number,
-    src             varchar2(10));
+    src             varchar2(10),
+    start_snap      number,
+    end_snap        number);
   type t_my_tab_rec is table of t_my_rec index by pls_integer;
   my_rec t_my_tab_rec;  
   type my_arrayofstrings is table of varchar2(1000);
@@ -26,7 +34,8 @@ declare
     long_name  varchar2(4000)
   );
   type t_db_header is table of t_r_db_header index by varchar2(10);
-  l_db_header t_db_header;
+  type t_t_db_header is table of t_db_header index by pls_integer;
+  l_db_header t_t_db_header;
   
   l_crsr sys_refcursor;
   l_plsql_output clob;
@@ -117,9 +126,10 @@ select rownum "#", x.*
 --^'||q'^
 
   l_sqlstat_data  clob:=
+    case when l_single_sql_report=0 then
 q'{
 select  
-       src Source,count(1) cnt, plan_hash_value plan_hash,PARSING_USER_ID,parsing_schema_name parsing_schema,module,action
+       src Source, min(snap_id) min_snap, max(snap_id) max_snap, count(1) cnt, plan_hash_value plan_hash, PARSING_USER_ID, parsing_schema_name parsing_schema, module,action
      from 
        (
         select 'DB1' src, x.* from dba_hist_sqlstat x 
@@ -132,15 +142,31 @@ select
            and dbid=&dbid2. and snap_id between &start_snap2. and &end_snap2. and instance_number between 1 and 256
            and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
        )
-     group by src,plan_hash_value,PARSING_USER_ID,parsing_schema_name,module,action
-     order by 1,2 desc
-}';
+     group by src, plan_hash_value, parsing_user_id, parsing_schema_name, module, action
+     order by 1,2,3
+}'
+else
+q'{
+select  
+       min(snap_id) min_snap, max(snap_id) max_snap, count(1) cnt, plan_hash_value plan_hash, PARSING_USER_ID, parsing_schema_name parsing_schema, module,action
+     from 
+       (
+        select x.* from dba_hist_sqlstat x 
+         where sql_id='&l_sql_id'
+           and dbid=&dbid1. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256
+           and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
+       )
+     group by plan_hash_value, parsing_user_id, parsing_schema_name, module, action
+     order by 1,2
+}'
+end;
 
 --^'||q'^
 
   l_ash_data  clob:=
+    case when l_single_sql_report=0 then  
 q'{
-select src source,count(1) cnt,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call       
+select src source, min(snap_id) min_snap, max(snap_id) max_snap, count(1) cnt, sql_id, TOP_LEVEL_SQL_ID, sql_plan_hash_value, user_id, program, module, action, client_id, top_call, end_call       
     from 
       (
        select 'DB1' src, x.*,
@@ -149,19 +175,34 @@ select src source,count(1) cnt,sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_
          from dba_hist_active_sess_history x
         where (sql_id='&l_sql_id' or TOP_LEVEL_SQL_ID='&l_sql_id')
           and (dbid=&dbid1. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256)
-          --and rownum<11
        union all
        select 'DB2' src, x.*,
               (select owner || '; ' || object_type || '; ' || object_name || decode(PROCEDURE_NAME, null, null, '.' || PROCEDURE_NAME) from dba_procedures where object_id=plsql_entry_object_id and subprogram_id=plsql_entry_subprogram_id) top_call,
               (select owner || '; ' || object_type || '; ' || object_name || decode(PROCEDURE_NAME, null, null, '.' || PROCEDURE_NAME) from dba_procedures where object_id=PLSQL_OBJECT_ID and subprogram_id=PLSQL_SUBPROGRAM_ID) end_call
          from dba_hist_active_sess_history&dblnk. x
         where (sql_id='&l_sql_id' or TOP_LEVEL_SQL_ID='&l_sql_id')
-          and (dbid=&dbid2. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256)
-          --and rownum<11
+          and (dbid=&dbid2. and snap_id between &start_snap2. and &end_snap2. and instance_number between 1 and 256)
       )
     group by src, sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call
-    order by 1,2 desc
-}';
+    order by 1,2,3
+}'
+else
+q'{
+select min(snap_id) min_snap, max(snap_id) max_snap, count(1) cnt, sql_id, TOP_LEVEL_SQL_ID, sql_plan_hash_value, user_id, program, module, action, client_id, top_call, end_call       
+    from 
+      (
+       select 'DB1' src, x.*,
+              (select owner || '; ' || object_type || '; ' || object_name || decode(PROCEDURE_NAME, null, null, '.' || PROCEDURE_NAME) from dba_procedures where object_id=plsql_entry_object_id and subprogram_id=plsql_entry_subprogram_id) top_call,
+              (select owner || '; ' || object_type || '; ' || object_name || decode(PROCEDURE_NAME, null, null, '.' || PROCEDURE_NAME) from dba_procedures where object_id=PLSQL_OBJECT_ID and subprogram_id=PLSQL_SUBPROGRAM_ID) end_call     
+         from dba_hist_active_sess_history x
+        where (sql_id='&l_sql_id' or TOP_LEVEL_SQL_ID='&l_sql_id')
+          and (dbid=&dbid1. and snap_id between &start_snap1. and &end_snap1. and instance_number between 1 and 256)
+      )
+    group by sql_id,TOP_LEVEL_SQL_ID,sql_plan_hash_value,user_id,program,module,action,client_id,top_call,end_call
+    order by 1,2
+}'
+end;
+
 
 --^'||q'^
 
@@ -336,23 +377,27 @@ order by 1,2 desc
 
 --^'||q'^
 
-  cursor c_title1 is
+  cursor c_title1(p_dbid1 number, p_start_snap1 number, p_end_snap1 number) is
     select 
       DB_NAME, sn.DBID,version,host_name,
-      to_char(max(i.STARTUP_TIME)over(),'YYYY/MM/DD HH24:mi:ss')STARTUP_TIME,
-      to_char(min(sn.BEGIN_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi')BEGIN_INTERVAL_TIME,
-      to_char(max(sn.END_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi')END_INTERVAL_TIME
+      to_char(max(i.STARTUP_TIME),'YYYY/MM/DD HH24:mi:ss')STARTUP_TIME,
+      to_char(min(sn.BEGIN_INTERVAL_TIME),'YYYY/MM/DD HH24:mi')BEGIN_INTERVAL_TIME,
+      to_char(max(sn.END_INTERVAL_TIME),'YYYY/MM/DD HH24:mi')END_INTERVAL_TIME,
+      min(snap_id) mi_snap_id, max(snap_id) ma_snap_id
      from dba_hist_database_instance i, 
           dba_hist_snapshot sn 
     where i.dbid = sn.dbid 
       and i.startup_time=sn.startup_time
-      and sn.dbid = l_dbid1
-      and sn.snap_id between l_start_snap1 and l_end_snap1
-      and sn.instance_number between 1 and 256;
+      and sn.instance_number=i.instance_number
+      and sn.dbid = p_dbid1
+      and sn.snap_id between p_start_snap1 and p_end_snap1
+      and sn.instance_number between 1 and 256
+    group by DB_NAME, sn.DBID,version,host_name
+    order by 6;
   r_title1 c_title1%rowtype;
   
-  cursor c_title2 is
-    select 
+  cursor c_title2(p_dbid2 number, p_start_snap2 number, p_end_snap2 number) is
+    select unique
       DB_NAME, sn.DBID,version,host_name,
       to_char(max(i.STARTUP_TIME)over(),'YYYY/MM/DD HH24:mi:ss')STARTUP_TIME,
       to_char(min(sn.BEGIN_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi')BEGIN_INTERVAL_TIME,
@@ -366,34 +411,44 @@ $ELSE
 $END      
     where i.dbid = sn.dbid 
       and i.startup_time=sn.startup_time
-      and sn.dbid = l_dbid2
-      and sn.snap_id between l_start_snap2 and l_end_snap2
+      and sn.instance_number=i.instance_number
+      and sn.dbid = p_dbid2
+      and sn.snap_id between p_start_snap2 and p_end_snap2
       and sn.instance_number between 1 and 256;
   r_title2 c_title2%rowtype;      
   
   cursor c_getsqlperm(p_sql_id varchar2) is
-    select x.* 
-      from (select unique src, dbid, plan_hash_value
+    select src, dbid, plan_hash_value, mi, ma 
+      from (select src, dbid, plan_hash_value, version, min(snap_id) mi, max(snap_id) ma
               from 
-              (select 'DB1' src, x.* from dba_hist_sqlstat x 
-                where sql_id=p_sql_id
-                  and dbid=l_dbid1 and snap_id between l_start_snap1 and l_end_snap1 and instance_number between 1 and 256
+              (select 'DB1' src, x.*, i.version from dba_hist_sqlstat x, dba_hist_database_instance i, dba_hist_snapshot sn  
+                where i.dbid = sn.dbid 
+                  and i.startup_time=sn.startup_time
+                  and x.dbid=sn.dbid and sn.snap_id=x.snap_id
+                  and x.instance_number=sn.instance_number and sn.instance_number=i.instance_number
+                  and sql_id=p_sql_id
+                  and x.dbid=l_dbid1 and x.snap_id between l_start_snap1 and l_end_snap1 and x.instance_number between 1 and 256
                   and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
                 union all
-               select 'DB2' src, x.* 
+               select 'DB2' src, x.*, i.version 
 $IF '~dblnk.' is not null $THEN   
-                 from dba_hist_sqlstat~dblnk. x
+                 from dba_hist_sqlstat~dblnk. x, dba_hist_database_instance~dblnk. i, dba_hist_snapshot~dblnk. sn
 $ELSE
-                 from dba_hist_sqlstat x
+                 from dba_hist_sqlstat x, dba_hist_database_instance i, dba_hist_snapshot sn
 $END                 
-                where sql_id=p_sql_id
-                  and dbid=l_dbid2 and snap_id between l_start_snap2 and l_end_snap2 and instance_number between 1 and 256
+                where i.dbid = sn.dbid 
+                  and i.startup_time=sn.startup_time
+                  and x.dbid=sn.dbid and sn.snap_id=x.snap_id
+                  and x.instance_number=sn.instance_number and sn.instance_number=i.instance_number
+                  and sql_id=p_sql_id
+                  and x.dbid=l_dbid2 and x.snap_id between l_start_snap2 and l_end_snap2 and x.instance_number between 1 and 256
                   and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
 $IF '~dblnk.' is null $THEN  
-                  and case when instr(upper(l_filter), 'SQL_ID=')>0 then 0 else 1 end = 1 -- when analyzing a single sql in a local DB, do not mess with excessive plan comparison from DB2.
+                  and l_single_sql_report = 0 -- when analyzing a single sql in a local DB, do not mess with excessive plan comparison from DB2.
 $END                                  
-                  )) x
-                order by src, dbid, plan_hash_value;
+                  ) group by src, dbid, version, plan_hash_value
+                  ) x
+                order by src, dbid, version, plan_hash_value;
   r_getsqlperm c_getsqlperm%rowtype;
   
 --^'||q'^  
@@ -544,7 +599,7 @@ $END
   
 --^'||q'^
 
-procedure prepare_script_comp(p_script in out clob) is 
+procedure prepare_script_comp(p_script in out clob, p_dbid1 number, p_dbid2 number, p_start_snap1 number, p_end_snap1 number, p_start_snap2 number, p_end_snap2 number) is 
   l_scr clob := p_script;
   l_line varchar2(32765);
   l_eof number;
@@ -552,8 +607,8 @@ procedure prepare_script_comp(p_script in out clob) is
 begin
   l_scr:=l_scr||chr(10);
   --set variable
-  p_script:=replace(replace(replace(replace(replace(replace(p_script,'&dbid1.',l_dbid1),'&dbid1',l_dbid1),'&start_snap1.',l_start_snap1),'&start_snap1',l_start_snap1),'&end_snap1.',l_end_snap1),'&end_snap1',l_end_snap1); 
-  p_script:=replace(replace(replace(replace(replace(replace(p_script,'&dbid2.',l_dbid2),'&dbid2',l_dbid2),'&start_snap2.',l_start_snap2),'&start_snap2',l_start_snap2),'&end_snap2.',l_end_snap2),'&end_snap2',l_end_snap2); 
+  p_script:=replace(replace(replace(replace(replace(replace(p_script,'&dbid1.',p_dbid1),'&dbid1',p_dbid1),'&start_snap1.',p_start_snap1),'&start_snap1',p_start_snap1),'&end_snap1.',p_end_snap1),'&end_snap1',l_end_snap1); 
+  p_script:=replace(replace(replace(replace(replace(replace(p_script,'&dbid2.',p_dbid2),'&dbid2',p_dbid2),'&start_snap2.',p_start_snap2),'&start_snap2',p_start_snap2),'&end_snap2.',p_end_snap2),'&end_snap2',l_end_snap2); 
   p_script:=replace(replace(replace(replace(replace(replace(p_script,'&dblnk.',l_dblink),'&dblnk',l_dblink),'&sortcol.',l_sortcol),'&sortcol',l_sortcol),'&sortlimit.',l_sortlimit),'&sortlimit',l_sortlimit); 
   p_script:=replace(replace(p_script,'&filter.',l_filter),'&filter',l_filter); 
 end;
@@ -574,68 +629,83 @@ begin
     p(HTF.BODYOPEN(cattributes=>'class="awr"'));
    
     p(HTF.header (1,'AWR SQL comparison report',cattributes=>'class="awr"'));
-    p(HTF.BR);
-    p(HTF.BR);
+    if l_single_sql_report=1 then p(HTF.header (6,cheader=>'Single SQL report')); end if;
+    
     p(HTF.header (2,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Table of contents',cname=>'tblofcont',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
     p(HTF.BR);
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#parameters',ctext=>'Parameters',cattributes=>'class="awr"')));
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#db_desc',ctext=>'Databases description',cattributes=>'class="awr"')));
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_list',ctext=>'SQL list',cattributes=>'class="awr"')));
    
-    if instr(upper(l_filter), 'SQL_ID=')=0 then   
+    if l_single_sql_report=0 then   
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sysmetr',ctext=>'System metrics',cattributes=>'class="awr"')));
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#noncomp',ctext=>'Non-comparable queries',cattributes=>'class="awr"')));
-    end if; --if instr(upper(l_filter), 'SQL_ID=')=0 then 
+    end if; --l_single_sql_report=0
   
     p(HTF.BR);
     p(HTF.BR); 
 
     p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Parameters',cname=>'parameters',cattributes=>'class="awr"'),cattributes=>'class="awr"'));   
     l_text:='Report input parameters:'||chr(10);
-    l_text:=l_text||'DB1: DBID: '||l_dbid1||'; snap_id between '||(l_start_snap1-1)||' and '||l_end_snap1||chr(10);
-    l_text:=l_text||'DB2: DBID: '||l_dbid2||'; snap_id between '||(l_start_snap2-1)||' and '||l_end_snap2||chr(10);
-    l_text:=l_text||'DB Link: <'||l_dblink||'>'||chr(10);
-    l_text:=l_text||'Sort column: '||l_sortcol||chr(10);
-    l_text:=l_text||'Limit: '||l_sortlimit||chr(10);
-    l_text:=l_text||'Filter: '||l_filter||chr(10);
-   
+    if l_single_sql_report=0 then
+      --generic report
+      l_text:=l_text||'DB1: DBID: '||l_dbid1||'; snap_id between '||(l_start_snap1-1)||' and '||l_end_snap1||chr(10);
+      l_text:=l_text||'DB2: DBID: '||l_dbid2||'; snap_id between '||(l_start_snap2-1)||' and '||l_end_snap2||chr(10);
+      l_text:=l_text||'DB Link: <'||l_dblink||'>'||chr(10);
+      l_text:=l_text||'Sort column: '||l_sortcol||chr(10);
+      l_text:=l_text||'Limit: '||l_sortlimit||chr(10);
+      l_text:=l_text||'Filter: '||l_filter||chr(10);
+    else
+      --single sql report
+      l_text:=l_text||'DB: DBID: '||l_dbid1||'; snap_id between '||(l_start_snap1-1)||' and '||l_end_snap1||chr(10);
+      l_text:=l_text||'Filter: '||l_filter||chr(10);      
+    end if;
     print_text_as_table(p_text=>l_text,p_t_header=>'#FIRST_LINE#',p_width=>400);
     p(HTF.BR);
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
     p(HTF.BR);
     p(HTF.BR); 
-
---^'||q'^
-
   end if; --if not l_embeded then
 
-  open c_title1;
-  fetch c_title1 into r_title1;
-  close c_title1;
-  open c_title2;
-  fetch c_title2 into r_title2;
-  close c_title2;
-   
-  l_db_header('DB1').short_name:=r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Snaps: '||(l_start_snap1-1)||'; '||l_end_snap1;
-  l_db_header('DB1').long_name :='DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||(l_start_snap1-1)||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap1||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME;
-  l_db_header('DB2').short_name:=r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Snaps: '||(l_start_snap2-1)||'; '||l_end_snap2;
-  l_db_header('DB2').long_name :='DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||(l_start_snap2-1)||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME;
+--^'||q'^
 
   if not l_embeded then   
    
     p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Databases description',cname=>'db_desc',cattributes=>'class="awr"'),cattributes=>'class="awr"'));   
+
     l_text:='Description:'||chr(10);
-    l_text:=l_text||'DB1:'||chr(10);
-    l_text:=l_text||'--------------------------------------------------------------------------------------------------------------------------------------------------------------------------'||chr(10);
-    l_text:=l_text||l_db_header('DB1').long_name||chr(10);
-    l_text:=l_text||'==========================================================================================================================================================================='||chr(10);
-    l_text:=l_text||'DB2:'||chr(10);
-    l_text:=l_text||'---------------------------------------------------------------------------------------------------------------------------------------------------------------------------'||chr(10);
-    l_text:=l_text||l_db_header('DB2').long_name||chr(10);
-    l_text:=l_text||'==========================================================================================================================================================================='||chr(10);
-   
+    if l_single_sql_report=0 then
+      --generic report
+  
+      open c_title1(l_dbid1,l_start_snap1,l_end_snap1);
+      fetch c_title1 into r_title1; close c_title1;
+      
+      l_text:=l_text||'DB1:'||chr(10);
+      l_text:=l_text||'DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||l_start_snap1||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap1||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME||chr(10);
+      
+      open c_title2(l_dbid2,l_start_snap2,l_end_snap2);
+      fetch c_title2 into r_title2; close c_title2;
+      
+      l_text:=l_text||'DB2:'||chr(10);
+      l_text:=l_text||'DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||l_start_snap2||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME||chr(10);  
+    else
+      --single SQL
+      l_cnt:=1;
+      open c_title1(l_dbid1,l_start_snap1,l_end_snap1);
+      loop
+        fetch c_title1 into r_title1; 
+        exit when c_title1%notfound;
+        l_text:=l_text||'DB'||l_cnt||':'||chr(10);
+        l_text:=l_text||'DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||r_title1.mi_snap_id||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||r_title1.ma_snap_id||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME||chr(10);
+        l_cnt:=l_cnt+1;
+      end loop; 
+      close c_title1;
+    end if;
+    
     print_text_as_table(p_text=>l_text,p_t_header=>'#FIRST_LINE#',p_width=>400);
+    
     p(HTF.BR);
+    
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
     p(HTF.BR);
     p(HTF.BR);    
@@ -645,7 +715,7 @@ begin
     p(HTF.BR);
   end if; --if not l_embeded then    
   
-  prepare_script_comp(l_getqlist);
+  prepare_script_comp(l_getqlist, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
   
   if not l_embeded then    
     print_table_html(l_getqlist,600,'SQL list',p_search=>'SQL_ID',p_replacement=>HTF.ANCHOR (curl=>'#sql_\1',ctext=>'\1',cattributes=>'class="awr1"'));
@@ -678,10 +748,10 @@ begin
      
     --get list of all plans
     my_rec.delete;
-    l_cnt:=1;
+    l_cnt:=1; --comparison index
     open c_getsqlperm(l_sql_id);
     loop
-      fetch c_getsqlperm into my_rec(l_cnt).src, my_rec(l_cnt).dbid, my_rec(l_cnt).plan_hash_value;
+      fetch c_getsqlperm into my_rec(l_cnt).src, my_rec(l_cnt).dbid, my_rec(l_cnt).plan_hash_value, my_rec(l_cnt).start_snap, my_rec(l_cnt).end_snap;
       exit when c_getsqlperm%notfound;
       l_cnt:=l_cnt+1;     
     end loop;
@@ -713,14 +783,36 @@ begin
       p(HTF.BR); 
     end if; --if not l_embeded then      
 
+    
     --loop through all pairs ofplans to compare     
+    l_cnt:=1; --comparison index
     <<comp_outer>>
     for a in 1 .. my_rec.count 
     loop
       <<comp_inner>>
       for b in (case when my_rec.count=1 then 1 else a + 1 end) .. my_rec.count 
       loop  
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: '||my_rec(a).src||': '||l_db_header(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
+        open c_title1(my_rec(a).dbid,my_rec(a).start_snap, my_rec(a).end_snap);
+        fetch c_title1 into r_title1; close c_title1;
+        open c_title2(my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap);
+        fetch c_title2 into r_title2; close c_title2;
+		
+        l_db_header(l_cnt)('DB1').short_name:=r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Snaps: '||(my_rec(a).start_snap)||'; '||my_rec(a).end_snap;
+        l_db_header(l_cnt)('DB1').long_name :='DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||(my_rec(a).start_snap)||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||my_rec(a).end_snap||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME;
+        
+        l_db_header(l_cnt)('DB2').short_name:=r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Snaps: '||(my_rec(b).start_snap)||'; '||my_rec(b).end_snap;
+        l_db_header(l_cnt)('DB2').long_name :='DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||(my_rec(b).start_snap)||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||my_rec(b).end_snap||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME;      
+        
+        
+        if l_single_sql_report=0 then
+          --generic report
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: '||my_rec(a).src||': '||l_db_header(l_cnt)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_cnt)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
+        else
+          --single SQL
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: DB1: '||l_db_header(l_cnt)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_cnt)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
+        end if;
+        
+        l_cnt:=l_cnt+1;
       end loop comp_inner;
     end loop comp_outer;      
      
@@ -737,7 +829,7 @@ begin
       p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' SQL stat data for '||l_sql_id,cname=>'sqlst_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
       p(HTF.BR);
       l_sql := replace(l_sqlstat_data,'&l_sql_id',l_sql_id);
-      prepare_script_comp(l_sql);
+      prepare_script_comp(l_sql, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
       print_table_html(l_sql,1500,'SQL stat data',p_style1 =>'awrncbbt',p_style2 =>'awrcbbt');
       p(HTF.BR);
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
@@ -748,7 +840,7 @@ begin
       p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH data for '||l_sql_id,cname=>'ash_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
       p(HTF.BR);
       l_sql := replace(l_ash_data,'&l_sql_id',l_sql_id);
-      prepare_script_comp(l_sql);
+      prepare_script_comp(l_sql, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
       print_table_html(l_sql,1500,'ASH data',p_style1 =>'awrncbbt',p_style2 =>'awrcbbt');
       p(HTF.BR);  
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
@@ -759,18 +851,27 @@ begin
       p(HTF.BR); 
     end if; --if not l_embeded then 
      
---^'||q'^
+--==============================================================         
+--^'; l_script1 clob := q'^         
+--==============================================================
      
-    --loop through all pairs ofplans to compare     
+    --loop through all pairs ofplans to compare    
+    l_cnt:=1;    
     <<comp_outer>>
     for a in 1 .. my_rec.count 
     loop
       <<comp_inner>>
       for b in (case when my_rec.count=1 then 1 else a + 1 end) .. my_rec.count 
       loop
-        l_max_width:=0;
-
-        p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: '||my_rec(a).src||': '||l_db_header(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+       
+        if l_single_sql_report=0 then
+          --generic report
+          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: '||my_rec(a).src||': '||l_db_header(l_cnt)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_cnt)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+        else
+          --single SQL
+          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: DB1: '||l_db_header(l_cnt)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_cnt)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+        end if;
+        
         p(HTF.BR); 
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#stat_'||a||'_'||b||'_'||l_sql_id,ctext=>'Statistics comparison',cattributes=>'class="awr"')));
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#wait_'||a||'_'||b||'_'||l_sql_id,ctext=>'Wait profile',cattributes=>'class="awr"')));
@@ -779,6 +880,15 @@ begin
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#pl_'||a||'_'||b||'_'||l_sql_id,ctext=>'Plans comparison',cattributes=>'class="awr"')));
         p(HTF.BR); 
         p(HTF.BR); 
+        
+        l_text:='Databases description:'||chr(10);
+        l_text:=l_text||'DB1:'||l_db_header(l_cnt)('DB1').long_name||chr(10);
+        l_text:=l_text||'DB2:'||l_db_header(l_cnt)('DB2').long_name||chr(10);
+   
+        print_text_as_table(p_text=>l_text,p_t_header=>'#FIRST_LINE#',p_width=>400);
+        p(HTF.BR);
+        p(HTF.BR);    
+        
         
         if not l_embeded then         
           p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
@@ -789,14 +899,15 @@ begin
         end if; --if not l_embeded then 
          
         --load stats
-        get_sql_stat(my_rec(a).src,l_sql_id,my_rec(a).plan_hash_value,my_rec(a).dbid,l_start_snap1,l_end_snap1,r_stats1);
-        get_sql_stat(my_rec(b).src,l_sql_id,my_rec(b).plan_hash_value,my_rec(b).dbid,l_start_snap2,l_end_snap2,r_stats2);       
+        get_sql_stat(my_rec(a).src,l_sql_id,my_rec(a).plan_hash_value,my_rec(a).dbid,my_rec(a).start_snap, my_rec(a).end_snap,r_stats1);
+        get_sql_stat(my_rec(b).src,l_sql_id,my_rec(b).plan_hash_value,my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap,r_stats2);       
          
         --load plans
         get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p1);
          
 --^'||q'^         
 
+        l_max_width:=0;
         l_single_plan := true;
         if a<>b and my_rec(a).plan_hash_value<>my_rec(b).plan_hash_value and my_rec(a).plan_hash_value<>0 and my_rec(b).plan_hash_value<>0 then
           l_single_plan := false;
@@ -824,9 +935,9 @@ begin
         end if;
          
         if l_max_width < 50 then l_max_width:= 50; end if;
---==============================================================         
---^'; l_script1 clob := q'^         
---==============================================================
+
+--^'||q'^         
+        
         l_text:=null;   
         pr(l_max_width,l_stat_ln,'Metric             Value',                          'Metric             Value',    'Delta, %            Delta to ELA/EXEC, %');
         pr(l_max_width,l_stat_ln,'EXECS:             '||r_stats1.EXECUTIONS_DELTA,    'EXECS:             '||r_stats2.EXECUTIONS_DELTA,    round(100*((r_stats2.EXECUTIONS_DELTA-r_stats1.EXECUTIONS_DELTA)        /(case when r_stats2.EXECUTIONS_DELTA=0 then case when r_stats1.EXECUTIONS_DELTA=0 then 1 else r_stats1.EXECUTIONS_DELTA end else r_stats2.EXECUTIONS_DELTA end)),2)||'%');
@@ -892,7 +1003,7 @@ begin
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Wait profile (approx), sec for '||l_sql_id,cname=>'wait_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);
         l_sql:=l_wait_profile;
-        prepare_script_comp(l_sql);
+        prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
         l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
         print_table_html(l_sql,800,'Wait profile');
         p(HTF.BR);
@@ -917,7 +1028,7 @@ begin
           p(HTF.BR);
         else 
           l_sql:=l_ash_plan;
-          prepare_script_comp(l_sql);
+          prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
           l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
           print_table_html(l_sql,1500,'ASH plan statistics');
         end if;
@@ -937,7 +1048,7 @@ begin
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH time span '||l_sql_id,cname=>'ash_span_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);
         l_sql:=l_ash_span;
-        prepare_script_comp(l_sql);
+        prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
         l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
         print_table_html(l_sql,1500,'ASH time span');
         p(HTF.BR);
@@ -1005,11 +1116,13 @@ begin
           p(HTF.BR);
           p(HTF.BR);          
         end if; --if not l_embeded then          
+        
+        l_cnt:=l_cnt+1;
       end loop comp_inner;
     end loop comp_outer;
   end loop query_list_loop;
    
-  if instr(upper(l_filter), 'SQL_ID=')=0 then   
+  if l_single_sql_report=0 then   
     p(HTF.BR);
     p(HTF.BR);  
   
@@ -1063,15 +1176,16 @@ begin
     p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Non-comparable queries',cname=>'noncomp',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
     p(HTF.BR); 
     p(HTF.BR);
-    prepare_script_comp(l_noncomp);
+    prepare_script_comp(l_noncomp, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
     print_table_html(l_noncomp,2000,'Non-comparable queries');
     p(HTF.BR);
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
     p(HTF.BR);
     p(HTF.BR);   
-  end if; --if instr(upper(l_filter), 'SQL_ID=')=0 then
+  end if; --l_single_sql_report=0
   
   if not l_embeded then    
+    p('End of Report');
     p((HTF.BODYCLOSE));
     p((HTF.HTMLCLOSE));
   end if;  --if not l_embeded then 
