@@ -553,6 +553,7 @@ $END
 --^'||q'^  
 
   procedure pr1(p_msg varchar2) is begin l_text:=l_text||p_msg||chr(10); end;
+  procedure pr2(p_msg varchar2, p_match varchar2) is begin l_text:=l_text||'~~*'||p_match||'*~~'||p_msg||chr(10); end;
   procedure pr(length1 number,length2 number, par1 varchar2, par2 varchar2, par3 varchar2 default null) 
   is 
     delim1 varchar2(10) := '*';
@@ -783,8 +784,11 @@ begin
       p(HTF.BR); 
     end if; --if not l_embeded then      
 
+--==============================================================         
+--^'; l_script1 clob := q'^         
+--==============================================================
     
-    --loop through all pairs ofplans to compare     
+    --loop through all pairs of plans to compare     
     l_cnt:=1; --comparison index
     <<comp_outer>>
     for a in 1 .. my_rec.count 
@@ -796,7 +800,7 @@ begin
         fetch c_title1 into r_title1; close c_title1;
         open c_title2(my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap);
         fetch c_title2 into r_title2; close c_title2;
-		
+        
         l_db_header(l_cnt)('DB1').short_name:=r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Snaps: '||(my_rec(a).start_snap)||'; '||my_rec(a).end_snap;
         l_db_header(l_cnt)('DB1').long_name :='DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||(my_rec(a).start_snap)||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||my_rec(a).end_snap||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME;
         
@@ -851,10 +855,8 @@ begin
       p(HTF.BR); 
     end if; --if not l_embeded then 
      
---==============================================================         
---^'; l_script1 clob := q'^         
---==============================================================
-     
+--^'||q'^   
+
     --loop through all pairs ofplans to compare    
     l_cnt:=1;    
     <<comp_outer>>
@@ -1093,9 +1095,9 @@ begin
             r2 := null;
           end if;
           if REGEXP_REPLACE(trim(ltrim(r1,'.')),'\s+','')=REGEXP_REPLACE(trim(r2),'\s+','') then
-            pr1(r1 || '+' || r2);
+            pr2(r1 || '+' || r2, '+');
           else
-            pr1(r1 || case when r2 is null then '*' else '-' || r2 end);
+            pr2(r1 || case when r2 is null then '*' else '-' || r2 end, case when r2 is null then '*' else '-' end);
           end if;
         end loop print_plan_comparison;
          
@@ -1104,7 +1106,7 @@ begin
         --Plans comparison
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);      
-        print_text_as_table(p_text=>l_text,p_t_header=>'',p_width=>3000);
+        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 3000, p_comparison => true);
         p(HTF.BR);
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
         p(HTF.BR);

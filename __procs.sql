@@ -147,9 +147,16 @@ exception
     raise_application_error(-20000, 'print_table_html'||chr(10)||sqlerrm||chr(10));
 end;
     
-procedure print_text_as_table(p_text clob, p_t_header varchar2,p_width number, p_search varchar2 default null, p_replacement varchar2 default null) is
+procedure print_text_as_table(p_text clob, p_t_header varchar2, p_width number, p_search varchar2 default null, p_replacement varchar2 default null, p_comparison boolean default false) is
   l_line varchar2(32765);  l_eof number;  l_iter number; l_length number;
   l_text clob;
+  l_style1 varchar2(10) := 'awrc1';
+  l_style2 varchar2(10) := 'awrnc1';
+  
+  l_style_comp1 varchar2(10) := 'awrcc1';
+  l_style_comp2 varchar2(10) := 'awrncc1';  
+  
+  l_pref varchar2(10) := 'z';
 begin
   p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_t_header||'"'));
   if p_t_header<>'#FIRST_LINE#' then
@@ -180,12 +187,23 @@ begin
       p(HTF.TABLEROWCLOSE);
     else
       p(HTF.TABLEROWOPEN);
+      
+      if p_comparison then
+        l_pref:=substr(l_line,1,7); 
+        l_line:=ltrim(l_line,l_pref);
+        l_pref:=substr(l_pref,4,1);
+      end if;
+      
       if p_search is not null and regexp_instr(l_line,p_search)>0 then
         l_line:=REGEXP_REPLACE(l_line,p_search,p_replacement);
-        p(HTF.TABLEDATA(cvalue=>l_line,calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then 'awrc1' else 'awrnc1' end ||'"'));
-      else
-        p(HTF.TABLEDATA(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then 'awrc1' else 'awrnc1' end ||'"'));
       end if;
+
+      if p_comparison and l_pref in ('-') then
+        p(HTF.TABLEDATA(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style_comp1 else l_style_comp2 end ||'"'));
+      else
+        p(HTF.TABLEDATA(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style1 else l_style2 end ||'"'));
+      end if;
+      
       p(HTF.TABLEROWCLOSE);
     end if;
     l_text:=substr(l_text,l_eof+1);  l_iter:=l_iter+1;
