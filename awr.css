@@ -20,3 +20,4 @@ table.tdiff   {  border_collapse: collapse; border-spacing: 0px}
 .hidden    {position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;}
 .pad           {margin-left:17px;}
 .doublepad  {margin-left:34px;}
+span.nm    {background-color:orange;color:white;}

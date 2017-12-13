@@ -158,6 +158,7 @@ procedure print_text_as_table(p_text clob, p_t_header varchar2, p_width number, 
   
   l_pref varchar2(10) := 'z';
 begin
+             
   p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_t_header||'"'));
   if p_t_header<>'#FIRST_LINE#' then
     p(HTF.TABLEROWOPEN);
@@ -181,6 +182,7 @@ begin
   loop
     l_eof:=instr(l_text,chr(10));
     l_line:=substr(l_text,1,l_eof);
+
     if p_t_header='#FIRST_LINE#' and l_iter = 1 then
       p(HTF.TABLEROWOPEN);
       p(HTF.TABLEHEADER(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="awrbg" scope="col"'));
@@ -188,26 +190,28 @@ begin
     else
       p(HTF.TABLEROWOPEN);
       
-      if p_comparison then
+      if p_comparison and substr(l_line,1,3)='~~*' then
         l_pref:=substr(l_line,1,7); 
-        l_line:=ltrim(l_line,l_pref);
+        l_line:=substr(l_line,8);
         l_pref:=substr(l_pref,4,1);
       end if;
       
       if p_search is not null and regexp_instr(l_line,p_search)>0 then
         l_line:=REGEXP_REPLACE(l_line,p_search,p_replacement);
-      end if;
-
-      if p_comparison and l_pref in ('-') then
-        p(HTF.TABLEDATA(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style_comp1 else l_style_comp2 end ||'"'));
       else
-        p(HTF.TABLEDATA(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style1 else l_style2 end ||'"'));
+        l_line:=replace(l_line,' ','&nbsp;');
+      end if;
+	  l_line:=replace(l_line,'`',' ');
+      if p_comparison and l_pref in ('-') then
+        p(HTF.TABLEDATA(cvalue=>l_line,calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style_comp1 else l_style_comp2 end ||'"'));
+      else
+        p(HTF.TABLEDATA(cvalue=>l_line,calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style1 else l_style2 end ||'"'));
       end if;
       
       p(HTF.TABLEROWCLOSE);
     end if;
     l_text:=substr(l_text,l_eof+1);  l_iter:=l_iter+1;
-    exit when l_iter>1000 or dbms_lob.getlength(l_text)=0;
+    exit when l_iter>10000 or dbms_lob.getlength(l_text)=0;
   end loop;
 
   p(HTF.TABLECLOSE);

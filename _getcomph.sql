@@ -26,8 +26,26 @@ declare
   type t_my_tab_rec is table of t_my_rec index by pls_integer;
   my_rec t_my_tab_rec;  
   type my_arrayofstrings is table of varchar2(1000);
-  p1       my_arrayofstrings;
-  p2       my_arrayofstrings;
+  p1       my_arrayofstrings := my_arrayofstrings();
+  p2       my_arrayofstrings := my_arrayofstrings();
+  p11      my_arrayofstrings;
+  p21      my_arrayofstrings;  
+  
+  type t_section is table of my_arrayofstrings index by varchar2(100);
+  l_sec1 t_section;
+  l_sec2 t_section;  
+  l_plan_sections my_arrayofstrings := my_arrayofstrings('SQL_ID','Plan hash value:','Outline Data');
+  l_curr_section number;  
+  
+  l_tab1   my_arrayofstrings;
+  l_tab2   my_arrayofstrings;
+
+  r1       varchar2(1000);
+  r2       varchar2(1000);
+  l_fst1   varchar2(100):='<span`class="nm"><b>';
+  l_fst2   varchar2(100):='</b></span>';
+  l_s_tag  varchar2(2)  := '<`';
+  l_e_tag  varchar2(2)  := '`>';
   
   type t_r_db_header is record (
     short_name varchar2(100),
@@ -48,11 +66,10 @@ declare
   l_total  number;
   l_rn     number;
   l_cnt    number;
+  l_pair_num  number;
   l_max_width number;
-  i           number;
+  l_plan_rowcnt number;
   l_stat_ln   number := 40;
-  r1       varchar2(1000);
-  r2       varchar2(1000);
   
   l_text clob;
   l_sql  clob;
@@ -614,6 +631,43 @@ begin
   p_script:=replace(replace(p_script,'&filter.',l_filter),'&filter',l_filter); 
 end;
 
+procedure to_table_for_comparison(p_list IN OUT VARCHAR2, p_tab out my_arrayofstrings, p_start_tag varchar2 default null, p_end_tag varchar2 default null)
+IS
+  l_string       VARCHAR2(32767) := p_list;
+  l_comma_index  PLS_INTEGER;
+  l_index        PLS_INTEGER := 1;
+  l_sep            varchar2(1) := ',';
+  l_trailing_space number;
+BEGIN
+  p_tab := my_arrayofstrings();
+  if instr(p_list,'|') > 0 then l_sep := '|';end if;
+  l_trailing_space:=nvl(length(l_string),0)-nvl(length(trim(l_string)),0);
+--p('1. '||l_trailing_space);p(HTF.BR);
+  if substr(trim(l_string),nvl(length(trim(l_string)),0))=l_sep then null; else l_string:=l_string||l_sep; end if;
+  --if l_sep = '|' then p_list:=l_sep; else p_list:= null; end if;
+  p_list:= null;
+--p('2. '||l_string);  
+  LOOP
+    l_comma_index := INSTR(l_string, l_sep, l_index);
+    EXIT WHEN l_comma_index = 0;
+    p_tab.EXTEND;
+    p_tab(p_tab.COUNT) := p_start_tag || trim(SUBSTR(l_string, l_index, l_comma_index - l_index)) || p_end_tag;    
+    p_list:=p_list|| replace(SUBSTR(l_string, l_index, l_comma_index - l_index),trim(SUBSTR(l_string, l_index, l_comma_index - l_index)),p_tab(p_tab.COUNT)) ||l_sep;
+    l_index := l_comma_index + 1;
+  END LOOP;
+--p('3. '||p_list);
+--p('4. '||nvl(length(p_list),0));
+  if l_sep <> '|' then 
+    p_list:=rtrim(p_list,l_sep); 
+  else
+    p_list:=p_list||rpad(' ',l_trailing_space, ' ');
+  end if;
+  --p_list:=replace(p_list,',','|');
+  --p_list:=p_list||rpad(' ',l_trailing_space, ' ');
+  l_trailing_space:=nvl(length(p_list),0)-nvl(length(trim(p_list)),0);
+--p('5. '||l_trailing_space);p(HTF.BR);  
+END;
+
 begin
 
 --^'||q'^
@@ -789,7 +843,7 @@ begin
 --==============================================================
     
     --loop through all pairs of plans to compare     
-    l_cnt:=1; --comparison index
+    l_pair_num:=1; --comparison index l_cnt
     <<comp_outer>>
     for a in 1 .. my_rec.count 
     loop
@@ -801,22 +855,22 @@ begin
         open c_title2(my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap);
         fetch c_title2 into r_title2; close c_title2;
         
-        l_db_header(l_cnt)('DB1').short_name:=r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Snaps: '||(my_rec(a).start_snap)||'; '||my_rec(a).end_snap;
-        l_db_header(l_cnt)('DB1').long_name :='DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||(my_rec(a).start_snap)||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||my_rec(a).end_snap||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME;
+        l_db_header(l_pair_num)('DB1').short_name:=r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Snaps: '||(my_rec(a).start_snap)||'; '||my_rec(a).end_snap;
+        l_db_header(l_pair_num)('DB1').long_name :='DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||(my_rec(a).start_snap)||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||my_rec(a).end_snap||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME;
         
-        l_db_header(l_cnt)('DB2').short_name:=r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Snaps: '||(my_rec(b).start_snap)||'; '||my_rec(b).end_snap;
-        l_db_header(l_cnt)('DB2').long_name :='DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||(my_rec(b).start_snap)||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||my_rec(b).end_snap||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME;      
+        l_db_header(l_pair_num)('DB2').short_name:=r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Snaps: '||(my_rec(b).start_snap)||'; '||my_rec(b).end_snap;
+        l_db_header(l_pair_num)('DB2').long_name :='DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||(my_rec(b).start_snap)||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||my_rec(b).end_snap||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME;      
         
         
         if l_single_sql_report=0 then
           --generic report
-          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: '||my_rec(a).src||': '||l_db_header(l_cnt)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_cnt)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: '||my_rec(a).src||': '||l_db_header(l_pair_num)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_pair_num)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
         else
           --single SQL
-          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: DB1: '||l_db_header(l_cnt)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_cnt)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Comparison: DB1: '||l_db_header(l_pair_num)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_pair_num)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cattributes=>'class="awr"')));
         end if;
         
-        l_cnt:=l_cnt+1;
+        l_pair_num:=l_pair_num+1;
       end loop comp_inner;
     end loop comp_outer;      
      
@@ -858,7 +912,7 @@ begin
 --^'||q'^   
 
     --loop through all pairs ofplans to compare    
-    l_cnt:=1;    
+    l_pair_num:=1;    
     <<comp_outer>>
     for a in 1 .. my_rec.count 
     loop
@@ -868,10 +922,10 @@ begin
        
         if l_single_sql_report=0 then
           --generic report
-          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: '||my_rec(a).src||': '||l_db_header(l_cnt)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_cnt)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: '||my_rec(a).src||': '||l_db_header(l_pair_num)(my_rec(a).src).short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with '||my_rec(b).src||': '||l_db_header(l_pair_num)(my_rec(b).src).short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         else
           --single SQL
-          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: DB1: '||l_db_header(l_cnt)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_cnt)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+          p(HTF.header (5,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Now comparing: DB1: '||l_db_header(l_pair_num)('DB1').short_name||'; PLAN_HASH: '||my_rec(a).plan_hash_value||' with DB2: '||l_db_header(l_pair_num)('DB2').short_name||'; PLAN_HASH: '||my_rec(b).plan_hash_value,cname=>'cmp_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         end if;
         
         p(HTF.BR); 
@@ -884,8 +938,8 @@ begin
         p(HTF.BR); 
         
         l_text:='Databases description:'||chr(10);
-        l_text:=l_text||'DB1:'||l_db_header(l_cnt)('DB1').long_name||chr(10);
-        l_text:=l_text||'DB2:'||l_db_header(l_cnt)('DB2').long_name||chr(10);
+        l_text:=l_text||'DB1:'||l_db_header(l_pair_num)('DB1').long_name||chr(10);
+        l_text:=l_text||'DB2:'||l_db_header(l_pair_num)('DB2').long_name||chr(10);
    
         print_text_as_table(p_text=>l_text,p_t_header=>'#FIRST_LINE#',p_width=>400);
         p(HTF.BR);
@@ -905,7 +959,7 @@ begin
         get_sql_stat(my_rec(b).src,l_sql_id,my_rec(b).plan_hash_value,my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap,r_stats2);       
          
         --load plans
-        get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p1);
+        get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p11);
          
 --^'||q'^         
 
@@ -913,27 +967,68 @@ begin
         l_single_plan := true;
         if a<>b and my_rec(a).plan_hash_value<>my_rec(b).plan_hash_value and my_rec(a).plan_hash_value<>0 and my_rec(b).plan_hash_value<>0 then
           l_single_plan := false;
-          get_plan(my_rec(b).src,l_sql_id, my_rec(b).plan_hash_value, my_rec(b).dbid,p2);
+          get_plan(my_rec(b).src,l_sql_id, my_rec(b).plan_hash_value, my_rec(b).dbid,p21);
           --couple of plans, width
-          i := greatest(p1.count, p2.count);
-          for j in 1 .. p1.count loop
-            if length(p1(j)) > l_max_width then
-              l_max_width := length(p1(j));
+          --
+          for j in 1 .. p11.count loop
+            if length(p11(j)) > l_max_width then
+              l_max_width := length(p11(j));
             end if;
           end loop;
-          for j in 1 .. p2.count loop
-            if length(p2(j)) > l_max_width then
-              l_max_width := length(p2(j));
+          for j in 1 .. p21.count loop
+            if length(p21(j)) > l_max_width then
+              l_max_width := length(p21(j));
             end if;
-          end loop;           
+          end loop;    
+          
+          --aligning sections
+		  p1.delete;
+		  p2.delete;
+          for i in 1..l_plan_sections.count loop
+            l_sec1(l_plan_sections(i)):=my_arrayofstrings();
+            l_sec2(l_plan_sections(i)):=my_arrayofstrings();
+          end loop;
+
+          l_cnt := 1;l_curr_section:=1;
+          for i in 1..p11.count loop
+            if instr(p11(i),l_plan_sections(l_cnt))>0 then l_curr_section:=l_cnt; if l_cnt<l_plan_sections.count then l_cnt:=l_cnt+1; end if; end if;
+            l_sec1(l_plan_sections(l_curr_section)).extend;
+            l_sec1(l_plan_sections(l_curr_section))(l_sec1(l_plan_sections(l_curr_section)).count):=p11(i);
+          end loop;
+          
+          l_cnt := 1;l_curr_section:=1;
+          for i in 1..p21.count loop
+            if instr(p21(i),l_plan_sections(l_cnt))>0 then l_curr_section:=l_cnt; if l_cnt<l_plan_sections.count then l_cnt:=l_cnt+1; end if; end if;
+            l_sec2(l_plan_sections(l_curr_section)).extend;
+            l_sec2(l_plan_sections(l_curr_section))(l_sec2(l_plan_sections(l_curr_section)).count):=p21(i);
+          end loop;
+     
+          for a in 1..l_plan_sections.count loop
+            for i in 1..greatest(l_sec1(l_plan_sections(a)).count,l_sec2(l_plan_sections(a)).count) loop
+              p1.extend;
+              if l_sec1(l_plan_sections(a)).exists(i) then
+                p1(p1.count) := l_sec1(l_plan_sections(a))(i);
+              else
+                p1(p1.count):=' ';
+              end if;
+              p2.extend;
+              if l_sec2(l_plan_sections(a)).exists(i) then
+                p2(p2.count) := l_sec2(l_plan_sections(a))(i);
+              else
+                p2(p2.count):=' ';
+              end if;      
+            end loop;
+          end loop;
+		  l_plan_rowcnt := greatest(p11.count, p21.count);
         else
           --single plan, width
-          i := p1.count;
-          for j in 1 .. p1.count loop
-            if length(p1(j)) > l_max_width then
-              l_max_width := length(p1(j));
+          for j in 1 .. p11.count loop
+            if length(p11(j)) > l_max_width then
+              l_max_width := length(p11(j));
             end if;
           end loop;
+          p1:=p11;
+          l_plan_rowcnt := p1.count;
         end if;
          
         if l_max_width < 50 then l_max_width:= 50; end if;
@@ -1066,9 +1161,9 @@ begin
         p(HTF.BR);    
          
 --^'||q'^
-
-        l_text:=null; 
+        
         --plans
+        l_text:=null; 
         if l_single_plan then
           if my_rec(a).plan_hash_value<>0 then 
             pr1(rpad('-',l_max_width+1,'-'));
@@ -1083,30 +1178,71 @@ begin
         end if;
       
         <<print_plan_comparison>>
-        for j in 1 .. i loop
-          if p1.exists(j) then
-            r1:=rpad(nvl(rtrim(replace(p1(j),chr(9),' ')),' '), l_max_width, ' ');
-          else
-            r1 := rpad('.', l_max_width, ' ');
-          end if;
+        for j in 1 .. l_plan_rowcnt loop
+        
           if p2.exists(j) and not l_single_plan then
             r2 := p2(j);
           else
             r2 := null;
-          end if;
-          if REGEXP_REPLACE(trim(ltrim(r1,'.')),'\s+','')=REGEXP_REPLACE(trim(r2),'\s+','') then
-            pr2(r1 || '+' || r2, '+');
+          end if;        
+          if p1.exists(j) then
+            r1:=rpad(nvl(rtrim(replace(p1(j),chr(9),' ')),' '), l_max_width, ' ');
           else
-            pr2(r1 || case when r2 is null then '*' else '-' || r2 end, case when r2 is null then '*' else '-' end);
+            if r2 is not null then
+              r1 := rpad(' ', l_max_width, ' ');
+            end if;
+          end if;
+
+          if l_single_plan then
+            pr2(r1 || '*', '*');
+          else
+            if REGEXP_REPLACE(trim(ltrim(r1,'.')),'\s+','')=REGEXP_REPLACE(trim(r2),'\s+','') or (trim(TRANSLATE(r1,'-',' ')) is null and trim(TRANSLATE(r2,'-',' ')) is null) then
+              pr2(r1 || '+' || r2, '+');
+            else
+              --coloring differet words
+              if r2 is not null then
+                to_table_for_comparison(r1,l_tab1,l_s_tag,l_e_tag);
+                to_table_for_comparison(r2,l_tab2,l_s_tag,l_e_tag);
+                for q in 1..greatest(l_tab1.count,l_tab2.count) loop
+                  if l_tab1.exists(q) and l_tab2.exists(q) then  
+                    if nvl(l_tab1(q),'#$%')<>nvl(l_tab2(q),'#$%') then
+                      if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' ')) is not null
+                      then
+                        r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(l_tab1(q),l_s_tag),l_e_tag)||l_fst2);
+                      end if;
+                      if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                      then
+                        r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(l_tab2(q),l_s_tag),l_e_tag)||l_fst2);
+                      end if;
+                    end if;
+                  end if;
+                  if l_tab1.exists(q) and not l_tab2.exists(q) then
+                    if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                    then
+                      r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(l_tab1(q),l_s_tag),l_e_tag)||l_fst2);
+                    end if;              
+                  end if;
+                  if not l_tab1.exists(q) and l_tab2.exists(q) then
+                    if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                    then
+                      r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(l_tab2(q),l_s_tag),l_e_tag)||l_fst2);
+                    end if;              
+                  end if;  
+                end loop;   
+                r1 := replace(replace(r1,l_s_tag),l_e_tag);                  
+                r2 := replace(replace(r2,l_s_tag),l_e_tag);                  
+              end if; 
+              pr2(r1 || case when r2 is null then '*' else '-' || r2 end, case when r2 is null then '*' else '-' end);
+            end if;
           end if;
         end loop print_plan_comparison;
-         
+
 --^'||q'^         
 
         --Plans comparison
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);      
-        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 3000, p_comparison => true);
+        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 100, p_comparison => true);
         p(HTF.BR);
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
         p(HTF.BR);
@@ -1119,7 +1255,7 @@ begin
           p(HTF.BR);          
         end if; --if not l_embeded then          
         
-        l_cnt:=l_cnt+1;
+        l_pair_num:=l_pair_num+1;
       end loop comp_inner;
     end loop comp_outer;
   end loop query_list_loop;
