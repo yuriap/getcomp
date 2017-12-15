@@ -17,6 +17,7 @@ declare
                                       and l_dblink is null 
                                       then 1 else 0 end;
   
+  g_plan_format varchar2(100):='ADVANCED -ALIAS';
   type t_my_rec is record(
     dbid            number,
     plan_hash_value number,
@@ -34,8 +35,17 @@ declare
   type t_section is table of my_arrayofstrings index by varchar2(100);
   l_sec1 t_section;
   l_sec2 t_section;  
-  l_plan_sections my_arrayofstrings := my_arrayofstrings('SQL_ID','Plan hash value:','Outline Data');
-  l_curr_section number;  
+  l_plan_sections_all my_arrayofstrings := my_arrayofstrings('SQL_ID',
+                                                         'Plan hash value:',
+														 'Query Block Name / Object Alias (identified by operation id):',
+														 'Outline Data',
+														 'Remote SQL Information (identified by operation id):',
+														 'Peeked Binds (identified by position):',
+														 'Note');  
+  l_curr_section number; 
+  l_plan_sections my_arrayofstrings := my_arrayofstrings();
+  type t_available_sections is table of number index by varchar2(100);
+  l_available_sections t_available_sections;
   
   l_tab1   my_arrayofstrings;
   l_tab2   my_arrayofstrings;
@@ -599,7 +609,7 @@ $END
     if p_src='DB1' then 
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, 'ADVANCED -ALIAS'));--, con_id => 0));
+        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
     end if;
     if p_src='DB2' then  
 $IF '~dblnk.' is not null $THEN
@@ -610,7 +620,7 @@ $IF '~dblnk.' is not null $THEN
 $ELSE
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, 'ADVANCED -ALIAS'));--, con_id => 0));
+        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
 $END
     end if;
   end;
@@ -642,11 +652,8 @@ BEGIN
   p_tab := my_arrayofstrings();
   if instr(p_list,'|') > 0 then l_sep := '|';end if;
   l_trailing_space:=nvl(length(l_string),0)-nvl(length(trim(l_string)),0);
---p('1. '||l_trailing_space);p(HTF.BR);
   if substr(trim(l_string),nvl(length(trim(l_string)),0))=l_sep then null; else l_string:=l_string||l_sep; end if;
-  --if l_sep = '|' then p_list:=l_sep; else p_list:= null; end if;
   p_list:= null;
---p('2. '||l_string);  
   LOOP
     l_comma_index := INSTR(l_string, l_sep, l_index);
     EXIT WHEN l_comma_index = 0;
@@ -655,17 +662,12 @@ BEGIN
     p_list:=p_list|| replace(SUBSTR(l_string, l_index, l_comma_index - l_index),trim(SUBSTR(l_string, l_index, l_comma_index - l_index)),p_tab(p_tab.COUNT)) ||l_sep;
     l_index := l_comma_index + 1;
   END LOOP;
---p('3. '||p_list);
---p('4. '||nvl(length(p_list),0));
   if l_sep <> '|' then 
     p_list:=rtrim(p_list,l_sep); 
   else
     p_list:=p_list||rpad(' ',l_trailing_space, ' ');
   end if;
-  --p_list:=replace(p_list,',','|');
-  --p_list:=p_list||rpad(' ',l_trailing_space, ' ');
   l_trailing_space:=nvl(length(p_list),0)-nvl(length(trim(p_list)),0);
---p('5. '||l_trailing_space);p(HTF.BR);  
 END;
 
 begin
@@ -984,6 +986,32 @@ begin
           --aligning sections
 		  p1.delete;
 		  p2.delete;
+		  l_available_sections.delete;
+		  l_plan_sections.delete;
+		  
+          for i in 1..p11.count loop
+            for j in 1..l_plan_sections_all.count loop
+              if instr(p11(i),l_plan_sections_all(j))>0 then 
+                l_available_sections(l_plan_sections_all(j)):=1; 
+              end if;
+            end loop;
+          end loop;  
+
+          for i in 1..p21.count loop
+            for j in 1..l_plan_sections_all.count loop
+              if instr(p21(i),l_plan_sections_all(j))>0 then 
+                l_available_sections(l_plan_sections_all(j)):=1; 
+              end if;
+            end loop;
+          end loop;  
+
+          for j in 1..l_plan_sections_all.count loop
+            if l_available_sections.exists(l_plan_sections_all(j)) then 
+              l_plan_sections.extend;
+              l_plan_sections(l_plan_sections.count):=l_plan_sections_all(j);
+            end if;
+          end loop;
+  
           for i in 1..l_plan_sections.count loop
             l_sec1(l_plan_sections(i)):=my_arrayofstrings();
             l_sec2(l_plan_sections(i)):=my_arrayofstrings();
