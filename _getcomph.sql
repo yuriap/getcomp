@@ -36,12 +36,12 @@ declare
   l_sec1 t_section;
   l_sec2 t_section;  
   l_plan_sections_all my_arrayofstrings := my_arrayofstrings('SQL_ID',
-                                                         'Plan hash value:',
-														 'Query Block Name / Object Alias (identified by operation id):',
-														 'Outline Data',
-														 'Remote SQL Information (identified by operation id):',
-														 'Peeked Binds (identified by position):',
-														 'Note');  
+                                                             'Plan hash value:',
+                                                             'Query Block Name / Object Alias (identified by operation id):',
+                                                             'Outline Data',
+                                                             'Remote SQL Information (identified by operation id):',
+                                                             'Peeked Binds (identified by position):',
+                                                             'Note');  
   l_curr_section number; 
   l_plan_sections my_arrayofstrings := my_arrayofstrings();
   type t_available_sections is table of number index by varchar2(100);
@@ -744,7 +744,7 @@ begin
       fetch c_title2 into r_title2; close c_title2;
       
       l_text:=l_text||'DB2:'||chr(10);
-      l_text:=l_text||'DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||l_start_snap2||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME||chr(10);  
+      l_text:=l_text||'DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||l_start_snap2||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME||chr(10);  
     else
       --single SQL
       l_cnt:=1;
@@ -984,11 +984,11 @@ begin
           end loop;    
           
           --aligning sections
-		  p1.delete;
-		  p2.delete;
-		  l_available_sections.delete;
-		  l_plan_sections.delete;
-		  
+          p1.delete;
+          p2.delete;
+          l_available_sections.delete;
+          l_plan_sections.delete;
+          
           for i in 1..p11.count loop
             for j in 1..l_plan_sections_all.count loop
               if instr(p11(i),l_plan_sections_all(j))>0 then 
@@ -1047,7 +1047,7 @@ begin
               end if;      
             end loop;
           end loop;
-		  l_plan_rowcnt := greatest(p11.count, p21.count);
+          l_plan_rowcnt := greatest(p11.count, p21.count);
         else
           --single plan, width
           for j in 1 .. p11.count loop
@@ -1270,7 +1270,7 @@ begin
         --Plans comparison
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);      
-        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 100, p_comparison => true);
+        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 1500, p_comparison => true);
         p(HTF.BR);
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
         p(HTF.BR);
