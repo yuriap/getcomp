@@ -97,7 +97,7 @@ begin
         dbms_sql.column_value(l_theCursor, i, l_columnValue);
       
         if p_break_col is not null and upper(p_break_col)=upper(l_descTbl(i).col_name) then
-          if nvl(l_break_value,'^~') <> nvl(l_columnValue,'^~') then
+          if nvl(l_break_value,'$~') <> nvl(l_columnValue,'$~') then
             l_break_value:=l_columnValue;
             l_break_cnt:=l_break_cnt+1;
           end if;
