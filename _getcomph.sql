@@ -56,6 +56,7 @@ declare
   l_fst2   varchar2(100):='</b></span>';
   l_s_tag  varchar2(2)  := '<`';
   l_e_tag  varchar2(2)  := '`>';
+  l_max_ind number;
   
   type t_r_db_header is record (
     short_name varchar2(100),
@@ -651,6 +652,7 @@ IS
 BEGIN
   p_tab := my_arrayofstrings();
   if instr(p_list,'|') > 0 then l_sep := '|';end if;
+  if instr(p_list,'Plan hash value') > 0 then l_sep := ':';end if;
   l_trailing_space:=nvl(length(l_string),0)-nvl(length(trim(l_string)),0);
   if substr(trim(l_string),nvl(length(trim(l_string)),0))=l_sep then null; else l_string:=l_string||l_sep; end if;
   p_list:= null;
@@ -658,7 +660,7 @@ BEGIN
     l_comma_index := INSTR(l_string, l_sep, l_index);
     EXIT WHEN l_comma_index = 0;
     p_tab.EXTEND;
-    p_tab(p_tab.COUNT) := p_start_tag || trim(SUBSTR(l_string, l_index, l_comma_index - l_index)) || p_end_tag;    
+    p_tab(p_tab.COUNT) := '~`'||p_tab.COUNT||'`~'||p_start_tag || trim(SUBSTR(l_string, l_index, l_comma_index - l_index)) || p_end_tag;    
     p_list:=p_list|| replace(SUBSTR(l_string, l_index, l_comma_index - l_index),trim(SUBSTR(l_string, l_index, l_comma_index - l_index)),p_tab(p_tab.COUNT)) ||l_sep;
     l_index := l_comma_index + 1;
   END LOOP;
@@ -1227,38 +1229,49 @@ begin
             if REGEXP_REPLACE(trim(ltrim(r1,'.')),'\s+','')=REGEXP_REPLACE(trim(r2),'\s+','') or (trim(TRANSLATE(r1,'-',' ')) is null and trim(TRANSLATE(r2,'-',' ')) is null) then
               pr2(r1 || '+' || r2, '+');
             else
-              --coloring differet words
+              --coloring different words
               if r2 is not null then
                 to_table_for_comparison(r1,l_tab1,l_s_tag,l_e_tag);
                 to_table_for_comparison(r2,l_tab2,l_s_tag,l_e_tag);
-                for q in 1..greatest(l_tab1.count,l_tab2.count) loop
-                  if l_tab1.exists(q) and l_tab2.exists(q) then  
+                l_max_ind:=greatest(l_tab1.count,l_tab2.count);
+                for q in 1..l_max_ind loop
+                  if l_tab1.exists(q) and l_tab2.exists(q) then               
                     if nvl(l_tab1(q),'#$%')<>nvl(l_tab2(q),'#$%') then
-                      if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' ')) is not null
+--p('-----------------------------');
+--p(q);
+--p('l_tab1(q):'||l_tab1(q));p('r1 1:'||r1);
+--p('l_tab2(q):'||l_tab2(q));p('r2 1:'||r2);                        
+--if q=1 then p('TRANSLATE l_tab1(q):'||trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' '))); end if;
+                      if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null
                       then
-                        r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(l_tab1(q),l_s_tag),l_e_tag)||l_fst2);
-                      end if;
-                      if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                        r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
+--p('r1 2:'||r1);                   
+                      end if;   
+--if q=1 then p('TRANSLATE l_tab2(q):'||trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' '))); end if;                
+                      if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null 
                       then
-                        r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(l_tab2(q),l_s_tag),l_e_tag)||l_fst2);
+                        r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
+--p('r2 2:'||r2);                       
                       end if;
                     end if;
                   end if;
                   if l_tab1.exists(q) and not l_tab2.exists(q) then
-                    if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                    if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null 
                     then
-                      r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(l_tab1(q),l_s_tag),l_e_tag)||l_fst2);
+                      r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
                     end if;              
                   end if;
                   if not l_tab1.exists(q) and l_tab2.exists(q) then
-                    if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' ')) is not null 
+                    if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null 
                     then
-                      r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(l_tab2(q),l_s_tag),l_e_tag)||l_fst2);
+                      r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
                     end if;              
                   end if;  
                 end loop;   
-                r1 := replace(replace(r1,l_s_tag),l_e_tag);                  
-                r2 := replace(replace(r2,l_s_tag),l_e_tag);                  
+                for q in 1..l_max_ind loop
+                  r1 := replace(replace(replace(r1,'~`'||q||'`~'),l_s_tag),l_e_tag);                  
+                  r2 := replace(replace(replace(r2,'~`'||q||'`~'),l_s_tag),l_e_tag);   
+                end loop;               
               end if; 
               pr2(r1 || case when r2 is null then '*' else '-' || r2 end, case when r2 is null then '*' else '-' end);
             end if;
