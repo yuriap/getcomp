@@ -610,7 +610,10 @@ $END
     if p_src='DB1' then 
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
+		--R12
+        --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
+		--R18 single tenant
+		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format));
     end if;
     if p_src='DB2' then  
 $IF '~dblnk.' is not null $THEN
@@ -621,7 +624,10 @@ $IF '~dblnk.' is not null $THEN
 $ELSE
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
+		--R12
+        --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
+		--R18 single tenant
+		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format));
 $END
     end if;
   end;
@@ -795,7 +801,11 @@ begin
     l_sqls(l_rn):=l_sql_id;
   end loop query_list_creating;
   close l_all_sqls;
-   
+
+--==============================================================         
+--^'; l_script1 clob := q'^         
+--==============================================================
+  
   <<query_list_loop>>
   for n in 1..l_sqls.count
   loop
@@ -841,10 +851,6 @@ begin
       p(HTF.BR); 
       p(HTF.BR); 
     end if; --if not l_embeded then      
-
---==============================================================         
---^'; l_script1 clob := q'^         
---==============================================================
     
     --loop through all pairs of plans to compare     
     l_pair_num:=1; --comparison index l_cnt
@@ -964,7 +970,7 @@ begin
          
         --load plans
         get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p11);
-         
+        
 --^'||q'^         
 
         l_max_width:=0;
