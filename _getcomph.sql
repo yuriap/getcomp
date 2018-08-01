@@ -613,7 +613,7 @@ $END
 		--R12
         --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
 		--R18 single tenant
-		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format));
+		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
     end if;
     if p_src='DB2' then  
 $IF '~dblnk.' is not null $THEN
@@ -627,7 +627,7 @@ $ELSE
 		--R12
         --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
 		--R18 single tenant
-		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format));
+		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
 $END
     end if;
   end;

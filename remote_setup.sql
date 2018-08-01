@@ -18,3 +18,13 @@ select plan_table_output
 from table(dbms_xplan.display_awr(SYS_CONTEXT('remote_awr_xplan_ctx', 'sql_id'), 
                                   SYS_CONTEXT('remote_awr_xplan_ctx', 'plan_hash'), 
                                   SYS_CONTEXT('remote_awr_xplan_ctx', 'dbid'), 'ADVANCED -ALIAS'));
+								  
+create or replace view remote_awr_plan as
+select plan_table_output 
+from table(dbms_xplan.display_workload_repository(sql_id          => SYS_CONTEXT('remote_awr_xplan_ctx', 'sql_id'), 
+                                                  plan_hash_value => SYS_CONTEXT('remote_awr_xplan_ctx', 'plan_hash'), 
+                                                  dbid            => SYS_CONTEXT('remote_awr_xplan_ctx', 'dbid'), 
+                                                  con_dbid        => SYS_CONTEXT('remote_awr_xplan_ctx', 'dbid'), 
+                                                  format          => 'ADVANCED -ALIAS',
+                                                  awr_location=>'AWR_PDB')
+                                                  );
