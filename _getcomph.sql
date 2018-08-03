@@ -610,10 +610,11 @@ $END
     if p_src='DB1' then 
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-		--R12
-        --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
-		--R18 single tenant
+$IF DBMS_DB_VERSION.ver_le_12 $THEN --R12
+        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
+$ELSE   --R18 multi tenant
 		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
+$END		
     end if;
     if p_src='DB2' then  
 $IF '~dblnk.' is not null $THEN
@@ -624,10 +625,11 @@ $IF '~dblnk.' is not null $THEN
 $ELSE
       select replace(replace(plan_table_output,chr(13)),chr(10)) bulk collect
         into p_data
-		--R12
-        --from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));--, con_id => 0));
-		--R18 single tenant
+$IF DBMS_DB_VERSION.ver_le_12 $THEN --R12
+        from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
+$ELSE   --R18 multi tenant
 		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
+$END
 $END
     end if;
   end;
