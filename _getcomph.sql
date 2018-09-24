@@ -82,6 +82,9 @@ declare
   l_plan_rowcnt number;
   l_stat_ln   number := 40;
   
+  l_1_2_change number;
+  l_1_2_change_tot number;
+  
   l_text clob;
   l_sql  clob;
   
@@ -101,9 +104,19 @@ q'{
 
   l_getqlist  clob:=
 q'{
-select rownum "#", x.*
-  from (select sql_id, sum(&sortcol.) tot_&sortcol., count(unique PLAN_HASH_VALUE) unique_plan_hash
-          from (select db2.*
+select SQLN "Top N", sql_id, tot_&sortcol., unique_plan_hash "Unique plans number", run_1_2_change "Ela/Exec change, %", decode(SQLN,1,run_1_2_avg_change,null) "Total Elapsed change, %" from (
+select rownum SQLN, x.sql_id, x.tot_&sortcol., x.unique_plan_hash, 
+       round(100*((db2_ee-db1_ee)/(case when db1_ee=0 then case when db2_ee=0 then 1 else db2_ee end else db1_ee end)),2) run_1_2_change,
+       --round(100*avg((db2_ee-db1_ee)/(case when db1_ee=0 then case when db2_ee=0 then 1 else db2_ee end else db1_ee end))over(),2) run_1_2_avg_change
+	   round(100*(sum(db2_ela)over()-sum(db1_ela)over())/(case when sum(db1_ela)over()=0 then case when sum(db2_ela)over()=0 then 1 else sum(db2_ela)over() end else sum(db1_ela)over() end),2) run_1_2_avg_change
+  from (select sql_id, sum(&sortcol.) tot_&sortcol., count(unique PLAN_HASH_VALUE) unique_plan_hash,
+               sum(db1_ela)/decode(sum(db1_exe),0,1,sum(db1_exe)) db1_ee,
+			   sum(db1_ela) db1_ela,
+               sum(db2_ela)/decode(sum(db2_exe),0,1,sum(db2_exe)) db2_ee,
+			   sum(db2_ela) db2_ela
+          from (select db2.*,
+                       decode(db,1,ELAPSED_TIME_DELTA,0) db1_ela, decode(db,1,EXECUTIONS_DELTA,0) db1_exe,
+                       decode(db,2,ELAPSED_TIME_DELTA,0) db2_ela, decode(db,2,EXECUTIONS_DELTA,0) db2_exe
                   from (select sql_id --,CPU_TIME_DELTA,ELAPSED_TIME_DELTA,BUFFER_GETS_DELTA,EXECUTIONS_DELTA
                           from dba_hist_sqlstat
                          where dbid = &dbid1.
@@ -126,8 +139,8 @@ select rownum "#", x.*
                            and instance_number between 1 and 256
                            and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
                         ) db1,
-                       (select *
-                          from dba_hist_sqlstat
+                       (select 1 db, s.sql_id, s.PLAN_HASH_VALUE, s.CPU_TIME_DELTA, s.ELAPSED_TIME_DELTA, s.BUFFER_GETS_DELTA, s.EXECUTIONS_DELTA
+                          from dba_hist_sqlstat s
                          where dbid = &dbid1. and snap_id between &start_snap1. and &end_snap1.
                            and parsing_schema_name <> 'SYS'
                            and decode(module, 'performance_info', 0, 1) = 1
@@ -136,8 +149,8 @@ select rownum "#", x.*
                            and instance_number between 1 and 256
                            and CPU_TIME_DELTA+ELAPSED_TIME_DELTA+BUFFER_GETS_DELTA+EXECUTIONS_DELTA>0
                         union all
-                        select *
-                          from dba_hist_sqlstat&dblnk.
+                        select 2 db, s.sql_id, s.PLAN_HASH_VALUE, s.CPU_TIME_DELTA, s.ELAPSED_TIME_DELTA, s.BUFFER_GETS_DELTA, s.EXECUTIONS_DELTA
+                          from dba_hist_sqlstat&dblnk. s
                          where dbid = &dbid2. and snap_id between &start_snap2. and &end_snap2.
                            and parsing_schema_name <> 'SYS'
                            and decode(module, 'performance_info', 0, 1) = 1
@@ -148,7 +161,7 @@ select rownum "#", x.*
                         ) db2
                  where db1.sql_id = db2.sql_id)
          group by sql_id having sum(&sortcol.) > &sortlimit.
-         order by tot_&sortcol. desc) x
+         order by tot_&sortcol. desc) x)
 }';
 
 --^'||q'^
@@ -747,12 +760,14 @@ begin
       open c_title1(l_dbid1,l_start_snap1,l_end_snap1);
       fetch c_title1 into r_title1; close c_title1;
       
+	  --do not change the following line
       l_text:=l_text||'DB1:'||chr(10);
       l_text:=l_text||'DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||l_start_snap1||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap1||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME||chr(10);
       
       open c_title2(l_dbid2,l_start_snap2,l_end_snap2);
       fetch c_title2 into r_title2; close c_title2;
-      
+	  
+      --do not change the following line
       l_text:=l_text||'DB2:'||chr(10);
       l_text:=l_text||'DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||l_start_snap2||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME||chr(10);  
     else
@@ -794,16 +809,19 @@ begin
    
 --^'||q'^
 
+--begin
   --getting sqls list
   open l_all_sqls for l_getqlist;
   <<query_list_creating>>
   loop
-    fetch l_all_sqls into l_rn, l_sql_id, l_total, l_cnt; --l_total, l_cnt is not used so far
+    fetch l_all_sqls into l_rn, l_sql_id, l_total, l_cnt, l_1_2_change, l_1_2_change_tot; --l_total, l_cnt is not used so far
     exit when l_all_sqls%notfound;   
     l_sqls(l_rn):=l_sql_id;
   end loop query_list_creating;
   close l_all_sqls;
-
+--exception
+--  when others then awrtools_logging.log(l_getqlist); raise;
+--end;
 --==============================================================         
 --^'; l_script1 clob := q'^         
 --==============================================================
