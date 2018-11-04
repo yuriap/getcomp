@@ -44,7 +44,7 @@ begin
     
     l_scr:=substr(l_scr,l_eof+1);
     l_iter:=l_iter+1;
-    exit when l_iter>1000 or dbms_lob.getlength(l_scr)=0;
+    exit when l_iter>10000 or dbms_lob.getlength(l_scr)=0;
   end loop;
   if not p_plsql then p_script:=replace(p_script,';'); end if;
 end;
@@ -144,7 +144,7 @@ exception
   when others then   
     if DBMS_SQL.IS_OPEN(l_theCursor) then dbms_sql.close_cursor(l_theCursor);end if;
     p(p_query);
-    raise_application_error(-20000, 'print_table_html'||chr(10)||sqlerrm||chr(10));
+    raise_application_error(-20000, 'print_table_html'||chr(10)||sqlerrm||chr(10)||p_query);
 end;
     
 procedure print_text_as_table(p_text clob, p_t_header varchar2, p_width number, p_search varchar2 default null, p_replacement varchar2 default null, p_comparison boolean default false) is
@@ -211,7 +211,8 @@ begin
       p(HTF.TABLEROWCLOSE);
     end if;
     l_text:=substr(l_text,l_eof+1);  l_iter:=l_iter+1;
-    exit when l_iter>10000 or dbms_lob.getlength(l_text)=0;
+	--if l_iter>100000 or dbms_lob.getlength(l_text)=0 then p('l_iter:'||l_iter||'; dbms_lob.getlength(l_text):'||dbms_lob.getlength(l_text)); end if;
+    exit when l_iter>100000 or dbms_lob.getlength(l_text)=0;
   end loop;
 
   p(HTF.TABLECLOSE);

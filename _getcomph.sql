@@ -108,12 +108,12 @@ select SQLN "Top N", sql_id, tot_&sortcol., unique_plan_hash "Unique plans numbe
 select rownum SQLN, x.sql_id, x.tot_&sortcol., x.unique_plan_hash, 
        round(100*((db2_ee-db1_ee)/(case when db1_ee=0 then case when db2_ee=0 then 1 else db2_ee end else db1_ee end)),2) run_1_2_change,
        --round(100*avg((db2_ee-db1_ee)/(case when db1_ee=0 then case when db2_ee=0 then 1 else db2_ee end else db1_ee end))over(),2) run_1_2_avg_change
-	   round(100*(sum(db2_ela)over()-sum(db1_ela)over())/(case when sum(db1_ela)over()=0 then case when sum(db2_ela)over()=0 then 1 else sum(db2_ela)over() end else sum(db1_ela)over() end),2) run_1_2_avg_change
+       round(100*(sum(db2_ela)over()-sum(db1_ela)over())/(case when sum(db1_ela)over()=0 then case when sum(db2_ela)over()=0 then 1 else sum(db2_ela)over() end else sum(db1_ela)over() end),2) run_1_2_avg_change
   from (select sql_id, sum(&sortcol.) tot_&sortcol., count(unique PLAN_HASH_VALUE) unique_plan_hash,
                sum(db1_ela)/decode(sum(db1_exe),0,1,sum(db1_exe)) db1_ee,
-			   sum(db1_ela) db1_ela,
+               sum(db1_ela) db1_ela,
                sum(db2_ela)/decode(sum(db2_exe),0,1,sum(db2_exe)) db2_ee,
-			   sum(db2_ela) db2_ela
+               sum(db2_ela) db2_ela
           from (select db2.*,
                        decode(db,1,ELAPSED_TIME_DELTA,0) db1_ela, decode(db,1,EXECUTIONS_DELTA,0) db1_exe,
                        decode(db,2,ELAPSED_TIME_DELTA,0) db2_ela, decode(db,2,EXECUTIONS_DELTA,0) db2_exe
@@ -587,12 +587,38 @@ $END
   type t_sqls is table of varchar2(100) index by pls_integer;
   l_sqls t_sqls;
   
+   l_time number;
+   l_cpu_tim number;
+   l_tot_time number:=0;
+   l_tot_cpu_tim number:=0;   
+   
+   l_timing boolean := true;  
+  
 --^'||q'^
   
 @@__procs
 
 --^'||q'^  
 
+  procedure stim is
+  begin
+    if l_timing then
+      l_time:=DBMS_UTILITY.GET_TIME;
+      l_cpu_tim:=DBMS_UTILITY.GET_CPU_TIME;
+    end if;
+  end;
+  procedure etim(p_final boolean default false, p_marker varchar2 default null) is
+  begin
+    if l_timing then
+      l_time:=DBMS_UTILITY.GET_TIME-l_time;l_tot_time:=l_tot_time+l_time;
+      l_cpu_tim:=DBMS_UTILITY.GET_CPU_TIME-l_cpu_tim;l_tot_cpu_tim:=l_tot_cpu_tim+l_cpu_tim;
+      p(HTF.header (6,cheader=>case when p_marker is not null then p_marker ||': ' else null end || 'Elapsed (sec): '||to_char(round((l_time)/100,2))||'; CPU (sec): '||to_char(round((l_cpu_tim)/100,2)),cattributes=>'class="awr"'));
+      if p_final then
+        p(HTF.header (6,cheader=>'TOTAL: Elapsed (sec): '||to_char(round((l_tot_time)/100,2))||'; CPU (sec): '||to_char(round((l_tot_cpu_tim)/100,2)),cattributes=>'class="awr"'));
+      end if;
+    end if;
+  end;
+   
   procedure pr1(p_msg varchar2) is begin l_text:=l_text||p_msg||chr(10); end;
   procedure pr2(p_msg varchar2, p_match varchar2) is begin l_text:=l_text||'~~*'||p_match||'*~~'||p_msg||chr(10); end;
   procedure pr(length1 number,length2 number, par1 varchar2, par2 varchar2, par3 varchar2 default null) 
@@ -626,8 +652,8 @@ $END
 $IF DBMS_DB_VERSION.ver_le_12 $THEN --R12
         from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
 $ELSE   --R18 multi tenant
-		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
-$END		
+        from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
+$END        
     end if;
     if p_src='DB2' then  
 $IF '~dblnk.' is not null $THEN
@@ -641,10 +667,11 @@ $ELSE
 $IF DBMS_DB_VERSION.ver_le_12 $THEN --R12
         from table(dbms_xplan.display_awr(p_sql_id, p_plan_hash, p_dbid, g_plan_format));
 $ELSE   --R18 multi tenant
-		from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
+        from table(dbms_xplan.display_workload_repository(sql_id=>p_sql_id, plan_hash_value=>p_plan_hash, dbid=>p_dbid, con_dbid=>p_dbid, format=>g_plan_format, awr_location=>'AWR_PDB'));
 $END
 $END
     end if;
+--p('count_plan: '||p_plan_hash||':'||p_data.count);
   end;
   
 --^'||q'^
@@ -698,6 +725,7 @@ begin
 --^'||q'^
 
   if not l_embeded then 
+    stim();
     p(HTF.HTMLOPEN);
     p(HTF.HEADOPEN);
     p(HTF.TITLE('AWR SQL comparison report'));   
@@ -745,12 +773,13 @@ begin
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
     p(HTF.BR);
     p(HTF.BR); 
+    etim();
   end if; --if not l_embeded then
 
 --^'||q'^
 
   if not l_embeded then   
-   
+    stim();
     p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'Databases description',cname=>'db_desc',cattributes=>'class="awr"'),cattributes=>'class="awr"'));   
 
     l_text:='Description:'||chr(10);
@@ -760,13 +789,13 @@ begin
       open c_title1(l_dbid1,l_start_snap1,l_end_snap1);
       fetch c_title1 into r_title1; close c_title1;
       
-	  --do not change the following line
+      --do not change the following line
       l_text:=l_text||'DB1:'||chr(10);
       l_text:=l_text||'DB name: '||r_title1.DB_NAME||' DBID:'||r_title1.DBID||'; Host:'||r_title1.host_name||'; Ver:'||r_title1.version||'; Snaps: '||l_start_snap1||':'||r_title1.BEGIN_INTERVAL_TIME||'; '||l_end_snap1||':'||r_title1.END_INTERVAL_TIME||'; Started: '||r_title1.STARTUP_TIME||chr(10);
       
       open c_title2(l_dbid2,l_start_snap2,l_end_snap2);
       fetch c_title2 into r_title2; close c_title2;
-	  
+      
       --do not change the following line
       l_text:=l_text||'DB2:'||chr(10);
       l_text:=l_text||'DB name: '||r_title2.DB_NAME||' DBID:'||r_title2.DBID||'; Host:'||r_title2.host_name||'; Ver:'||r_title2.version||'; Snaps: '||l_start_snap2||':'||r_title2.BEGIN_INTERVAL_TIME||'; '||l_end_snap2||':'||r_title2.END_INTERVAL_TIME||'; Started: '||r_title2.STARTUP_TIME||chr(10);  
@@ -795,21 +824,23 @@ begin
     --SQL list
     p(HTF.header (3,cheader=>HTF.ANCHOR (curl=>'',ctext=>'SQL list',cname=>'sql_list',cattributes=>'class="awr"'),cattributes=>'class="awr"'));
     p(HTF.BR);
+    etim();
   end if; --if not l_embeded then    
   
   prepare_script_comp(l_getqlist, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
   
-  if not l_embeded then    
+  if not l_embeded then  
+    stim();  
     print_table_html(l_getqlist,600,'SQL list',p_search=>'SQL_ID',p_replacement=>HTF.ANCHOR (curl=>'#sql_\1',ctext=>'\1',cattributes=>'class="awr1"'));
     p(HTF.BR);
     p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
     p(HTF.BR);
+    etim();
     p(HTF.BR);     
   end if; --if not l_embeded then   
    
 --^'||q'^
 
---begin
   --getting sqls list
   open l_all_sqls for l_getqlist;
   <<query_list_creating>>
@@ -819,9 +850,7 @@ begin
     l_sqls(l_rn):=l_sql_id;
   end loop query_list_creating;
   close l_all_sqls;
---exception
---  when others then awrtools_logging.log(l_getqlist); raise;
---end;
+
 --==============================================================         
 --^'; l_script1 clob := q'^         
 --==============================================================
@@ -852,7 +881,8 @@ begin
       p(HTF.BR);
     end if; --if not l_embeded then
     
-    if not l_embeded then    
+    if not l_embeded then  
+      stim();   
       l_sql:=q'[select x.sql_text text from dba_hist_sqltext x where sql_id=']'||l_sql_id||q'[' and rownum=1]'||chr(10);
       open l_crsr for l_sql;
       fetch l_crsr into l_plsql_output;
@@ -869,10 +899,12 @@ begin
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sqlst_'||l_sql_id,ctext=>'SQL stat data',cattributes=>'class="awr"')));
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#ash_'||l_sql_id,ctext=>'ASH data',cattributes=>'class="awr"')));
       p(HTF.BR); 
+      etim();
       p(HTF.BR); 
     end if; --if not l_embeded then      
     
-    --loop through all pairs of plans to compare     
+    --loop through all pairs of plans to compare   
+    stim(); 
     l_pair_num:=1; --comparison index l_cnt
     <<comp_outer>>
     for a in 1 .. my_rec.count 
@@ -903,10 +935,11 @@ begin
         l_pair_num:=l_pair_num+1;
       end loop comp_inner;
     end loop comp_outer;      
-     
+    etim(); 
 --^'||q'^     
 
     if not l_embeded then 
+      stim();
       p(HTF.BR); 
       p(HTF.BR); 
       if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
@@ -936,6 +969,7 @@ begin
       if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
       p(HTF.BR);
+      etim();
       p(HTF.BR); 
     end if; --if not l_embeded then 
      
@@ -962,7 +996,9 @@ begin
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#stat_'||a||'_'||b||'_'||l_sql_id,ctext=>'Statistics comparison',cattributes=>'class="awr"')));
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#wait_'||a||'_'||b||'_'||l_sql_id,ctext=>'Wait profile',cattributes=>'class="awr"')));
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#ash_plan_'||a||'_'||b||'_'||l_sql_id,ctext=>'ASH plan statistics',cattributes=>'class="awr"')));
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#ash_span_'||a||'_'||b||'_'||l_sql_id,ctext=>'ASH time span',cattributes=>'class="awr"')));
+        if not l_embeded then
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#ash_span_'||a||'_'||b||'_'||l_sql_id,ctext=>'ASH time span',cattributes=>'class="awr"')));
+        end if;
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#pl_'||a||'_'||b||'_'||l_sql_id,ctext=>'Plans comparison',cattributes=>'class="awr"')));
         p(HTF.BR); 
         p(HTF.BR); 
@@ -983,21 +1019,24 @@ begin
           p(HTF.BR); 
           p(HTF.BR); 
         end if; --if not l_embeded then 
-         
+        
+        stim(); 
         --load stats
         get_sql_stat(my_rec(a).src,l_sql_id,my_rec(a).plan_hash_value,my_rec(a).dbid,my_rec(a).start_snap, my_rec(a).end_snap,r_stats1);
         get_sql_stat(my_rec(b).src,l_sql_id,my_rec(b).plan_hash_value,my_rec(b).dbid,my_rec(b).start_snap, my_rec(b).end_snap,r_stats2);       
          
         --load plans
         get_plan(my_rec(a).src,l_sql_id, my_rec(a).plan_hash_value, my_rec(a).dbid,p11);
-        
+--p('p11:'||p11.count);
+        etim(p_marker=>'Plans extract');
 --^'||q'^         
-
+        stim();
         l_max_width:=0;
         l_single_plan := true;
         if a<>b and my_rec(a).plan_hash_value<>my_rec(b).plan_hash_value and my_rec(a).plan_hash_value<>0 and my_rec(b).plan_hash_value<>0 then
           l_single_plan := false;
           get_plan(my_rec(b).src,l_sql_id, my_rec(b).plan_hash_value, my_rec(b).dbid,p21);
+--p('p21:'||p21.count);       
           --couple of plans, width
           --
           for j in 1 .. p11.count loop
@@ -1086,9 +1125,9 @@ begin
           p1:=p11;
           l_plan_rowcnt := p1.count;
         end if;
-         
+--p('l_plan_rowcnt:'||l_plan_rowcnt);         
         if l_max_width < 50 then l_max_width:= 50; end if;
-
+        etim(p_marker=>'Stat calc');
 --^'||q'^         
         
         l_text:=null;   
@@ -1137,6 +1176,7 @@ begin
 --^'||q'^
 
         --Statistics comparison
+        stim();
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Statistics comparison for '||l_sql_id,cname=>'stat_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);
         print_text_as_table(p_text=>l_text,p_t_header=>'#FIRST_LINE#',p_width=>800);
@@ -1150,63 +1190,76 @@ begin
         if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
         p(HTF.BR);
+        etim();
         p(HTF.BR);          
          
         --Wait profile
-        p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Wait profile (approx), sec for '||l_sql_id,cname=>'wait_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
-        p(HTF.BR);
-        l_sql:=l_wait_profile;
-        prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
-        l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
-        print_table_html(l_sql,800,'Wait profile');
-        p(HTF.BR);
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
-        p(HTF.BR);
         if not l_embeded then
-          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
-          p(HTF.BR);      
+        stim();
+          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Wait profile (approx), sec for '||l_sql_id,cname=>'wait_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+          p(HTF.BR);
+          l_sql:=l_wait_profile;
+          prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
+          l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
+          print_table_html(l_sql,800,'Wait profile');
+          p(HTF.BR);
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
+          p(HTF.BR);
+          if not l_embeded then
+            p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
+            p(HTF.BR);      
+          end if; --if not l_embeded then
+          if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
+          p(HTF.BR);
+          etim();
+          p(HTF.BR);  
         end if; --if not l_embeded then
-        if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
-        p(HTF.BR);
-        p(HTF.BR);  
          
  --^'||q'^        
  
         --ASH plan statistics
-        p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH plan statistics '||l_sql_id,cname=>'ash_plan_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
-        p(HTF.BR);
-        if my_rec(a).plan_hash_value=0 or my_rec(b).plan_hash_value=0 then
-          p('There is no plan available for PLAN_HASH=0.');
-          p(HTF.BR);
-        else 
-          l_sql:=l_ash_plan;
-          prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
-          l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
-          print_table_html(l_sql,1500,'ASH plan statistics');
-        end if;
-        p(HTF.BR);
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
-        p(HTF.BR);
         if not l_embeded then
-          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
-          p(HTF.BR);      
+          stim();
+          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH plan statistics '||l_sql_id,cname=>'ash_plan_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+          p(HTF.BR);
+          if my_rec(a).plan_hash_value=0 or my_rec(b).plan_hash_value=0 then
+            p('There is no plan available for PLAN_HASH=0.');
+            p(HTF.BR);
+          else 
+            l_sql:=l_ash_plan;
+            prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
+            l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
+            print_table_html(l_sql,1500,'ASH plan statistics');
+          end if;
+          p(HTF.BR);
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
+          p(HTF.BR);
+          if not l_embeded then
+            p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
+            p(HTF.BR);      
+          end if; --if not l_embeded then
+          if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
+          p(HTF.BR);
+          etim();
+          p(HTF.BR);  
         end if; --if not l_embeded then
-        if l_next_sql_id is not null then p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_next_sql_id,ctext=>'Goto next SQL: '||l_next_sql_id,cattributes=>'class="awr"'))); end if;
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#tblofcont',ctext=>'Back to top',cattributes=>'class="awr"')));
-        p(HTF.BR);
-        p(HTF.BR);  
          
         --ASH time span
-        p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH time span '||l_sql_id,cname=>'ash_span_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
-        p(HTF.BR);
-        l_sql:=l_ash_span;
-        prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
-        l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
-        print_table_html(l_sql,1500,'ASH time span');
-        p(HTF.BR);
-        p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
-        p(HTF.BR);
+        if not l_embeded then
+          stim();
+          p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH time span '||l_sql_id,cname=>'ash_span_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
+          p(HTF.BR);
+          l_sql:=l_ash_span;
+          prepare_script_comp(l_sql, my_rec(a).dbid, my_rec(b).dbid, my_rec(a).start_snap, my_rec(a).end_snap, my_rec(b).start_snap, my_rec(b).end_snap);
+          l_sql:=replace(replace(replace(l_sql,'&l_sql_id',l_sql_id),'&plan_hash1.',my_rec(a).plan_hash_value),'&plan_hash2.',my_rec(b).plan_hash_value);
+          print_table_html(l_sql,1500,'ASH time span');
+          p(HTF.BR);
+          p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
+          p(HTF.BR);
+          etim();
+        end if; --if not l_embeded then
         if not l_embeded then
           p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
           p(HTF.BR);      
@@ -1219,6 +1272,7 @@ begin
 --^'||q'^
         
         --plans
+        stim();
         l_text:=null; 
         if l_single_plan then
           if my_rec(a).plan_hash_value<>0 then 
@@ -1232,7 +1286,7 @@ begin
         if my_rec(a).plan_hash_value=0 then
           pr1('ATTENTION: no plan available, plan_hash_value=0');
         end if;
-      
+--p('l_plan_rowcnt:'||l_plan_rowcnt);      
         <<print_plan_comparison>>
         for j in 1 .. l_plan_rowcnt loop
         
@@ -1321,12 +1375,12 @@ begin
           p(HTF.BR);
           p(HTF.BR);          
         end if; --if not l_embeded then          
-        
+        etim();
         l_pair_num:=l_pair_num+1;
       end loop comp_inner;
     end loop comp_outer;
   end loop query_list_loop;
-   
+  stim(); 
   if l_single_sql_report=0 then   
     p(HTF.BR);
     p(HTF.BR);  
@@ -1388,7 +1442,7 @@ begin
     p(HTF.BR);
     p(HTF.BR);   
   end if; --l_single_sql_report=0
-  
+  etim(true);
   if not l_embeded then    
     p('End of Report');
     p((HTF.BODYCLOSE));
