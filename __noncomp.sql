@@ -91,8 +91,7 @@ begin
   return l_result;
 end;
 db1 as (select unique  
-                --'DB1: '||sn.DBID||', '||version || ', ' || host_name || ', ' || platform_name 
-                'DB1: '||sn.DBID||', '||version || ', ' || host_name || --', ' || platform_name || 
+                'DB1: '||sn.DBID||', '||version || ', ' || --host_name || --', ' || platform_name || 
                 ', B:' || to_char(min(sn.BEGIN_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi') ||
                 ', E:' || to_char(max(sn.END_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi')
                 src_name,
@@ -105,8 +104,7 @@ db1 as (select unique
      and sn.snap_id between &start_snap1. and &end_snap1.
      and sn.instance_number between 1 and 256),
 db2 as (select unique 
-                --'DB2: '||sn.DBID||', '||version || ', ' || host_name || ', ' || platform_name 
-                'DB2: '||sn.DBID||', '||version || ', ' || host_name || --', ' || platform_name || 
+                'DB2: '||sn.DBID||', '||version ||  --', ' ||host_name || --', ' || platform_name || 
                 ', B:' || to_char(min(sn.BEGIN_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi') ||
                 ', E:' || to_char(max(sn.END_INTERVAL_TIME) over (),'YYYY/MM/DD HH24:mi')
                 src_name,
@@ -122,9 +120,9 @@ select unique t.sql_id, src_name,
        getstat(t.sql_id,srch) stat,
        cast(substr(sql_text, 1, 4000) as varchar2(4000)) txt,
        ordr(t.sql_id) ordrc
-  from (select * from dba_hist_sqltext where dbid = &dbid1.
+  from (select x.* from dba_hist_sqltext x where dbid = &dbid1.
          union all
-        select * from dba_hist_sqltext&dblnk.  where dbid = &dbid2.
+        select x.* from dba_hist_sqltext&dblnk. x where dbid = &dbid2. and '&dblnk.' is not null
        ) t,
                          (select db1.src_name, db1.srch, sql_id
                             from (select sql_id
