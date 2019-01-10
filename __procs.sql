@@ -49,15 +49,16 @@ begin
   if not p_plsql then p_script:=replace(p_script,';'); end if;
 end;
 
-procedure print_table_html(p_query in varchar2, 
-                           p_width number, 
-                           p_summary varchar2, 
-                           p_search varchar2 default null, 
-                           p_replacement varchar2 default null, 
-                           p_style1 varchar2 default 'awrc1', 
+procedure print_table_html(p_query in varchar2,
+                           p_width number,
+                           p_summary varchar2,
+                           p_search varchar2 default null,
+                           p_replacement varchar2 default null,
+                           p_style1 varchar2 default 'awrc1',
                            p_style2  varchar2 default 'awrnc1',
                            p_header number default 0,
-                           p_break_col varchar2 default null) is
+                           p_break_col varchar2 default null,
+                           p_row_limit number default 10000) is
   l_theCursor   integer default dbms_sql.open_cursor;
   l_columnValue varchar2(32767);
   l_status      integer;
@@ -67,6 +68,31 @@ procedure print_table_html(p_query in varchar2,
   l_style       varchar2(100);
   l_break_value varchar2(4000) := null;
   l_break_cnt   number := 1;
+  type t_output_lines is table of varchar2(32767) index by pls_integer;
+  l_output t_output_lines;
+  l_indx number := 1;
+  procedure p(p_line varchar2) is
+  begin
+    l_output(l_indx):=p_line;
+    l_indx := l_indx + 1;
+  end;  
+  procedure p1(p_msg varchar2) is begin dbms_output.put_line(p_msg); end;
+  procedure output is
+  begin
+    if l_output.count<=nvl(p_row_limit,1000) then
+      for i in 1..l_output.count loop
+        p1(l_output(i));
+      end loop;
+    else
+      for i in 1..round(nvl(p_row_limit,1000)/2) loop
+        p1(l_output(i));
+      end loop;
+      for i in l_output.count-round(nvl(p_row_limit,1000)/2)..l_output.count loop
+        p1(l_output(i));
+      end loop;   
+      p1('Output is truncated: first and last '||round(nvl(p_row_limit,1000)/2)||' rows are shown');
+    end if;    
+  end;
 begin
   p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_summary||'"'));
 
@@ -95,23 +121,23 @@ begin
     else
       for i in 1 .. l_colCnt loop
         dbms_sql.column_value(l_theCursor, i, l_columnValue);
-      
+
         if p_break_col is not null and upper(p_break_col)=upper(l_descTbl(i).col_name) then
           if nvl(l_break_value,'$~') <> nvl(l_columnValue,'$~') then
             l_break_value:=l_columnValue;
             l_break_cnt:=l_break_cnt+1;
           end if;
-        end if;      
-      
+        end if;
+
         if p_break_col is not null then
           l_style := case when mod(l_break_cnt,2)=0 then p_style1 else p_style2 end;
-        end if; 
+        end if;
       end loop;
-    end if;    
+    end if;
     -----------------------------------------------------------------------------
     for i in 1 .. l_colCnt loop
       dbms_sql.column_value(l_theCursor, i, l_columnValue);
-      
+
       l_columnValue:=replace(replace(l_columnValue,chr(13)||chr(10),chr(10)||'<br/>'),chr(10),chr(10)||'<br/>');
       if p_search is not null then
         if instr(l_descTbl(i).col_name,p_search)>0 then
@@ -140,6 +166,7 @@ begin
   end loop;
   dbms_sql.close_cursor(l_theCursor);
   p(HTF.TABLECLOSE);
+  output();
 exception
   when others then   
     if DBMS_SQL.IS_OPEN(l_theCursor) then dbms_sql.close_cursor(l_theCursor);end if;
@@ -211,7 +238,6 @@ begin
       p(HTF.TABLEROWCLOSE);
     end if;
     l_text:=substr(l_text,l_eof+1);  l_iter:=l_iter+1;
-	--if l_iter>100000 or dbms_lob.getlength(l_text)=0 then p('l_iter:'||l_iter||'; dbms_lob.getlength(l_text):'||dbms_lob.getlength(l_text)); end if;
     exit when l_iter>100000 or dbms_lob.getlength(l_text)=0;
   end loop;
 
