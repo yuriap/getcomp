@@ -48,7 +48,7 @@ begin
   end loop;
   if not p_plsql then p_script:=replace(p_script,';'); end if;
 end;
-
+--^'||q'^
 procedure print_table_html(p_query in varchar2,
                            p_width number,
                            p_summary varchar2,
@@ -70,6 +70,7 @@ procedure print_table_html(p_query in varchar2,
   l_break_cnt   number := 1;
   type t_output_lines is table of varchar2(32767) index by pls_integer;
   l_output t_output_lines;
+  l_widest number := 0;
   l_indx number := 1;
   procedure p(p_line varchar2) is
   begin
@@ -94,7 +95,7 @@ procedure print_table_html(p_query in varchar2,
     end if;    
   end;
 begin
-  p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_summary||'"'));
+  p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="<width>" class="tdiff" summary="'||p_summary||'"'));
 
   dbms_sql.parse(l_theCursor, p_query, dbms_sql.native);
   dbms_sql.describe_columns2(l_theCursor, l_colCnt, l_descTbl);
@@ -137,7 +138,7 @@ begin
     -----------------------------------------------------------------------------
     for i in 1 .. l_colCnt loop
       dbms_sql.column_value(l_theCursor, i, l_columnValue);
-
+      if l_colCnt = 1 and nvl(length(l_columnValue),0)>l_widest then l_widest:=length(l_columnValue); end if;
       l_columnValue:=replace(replace(l_columnValue,chr(13)||chr(10),chr(10)||'<br/>'),chr(10),chr(10)||'<br/>');
       if p_search is not null then
         if instr(l_descTbl(i).col_name,p_search)>0 then
@@ -166,14 +167,21 @@ begin
   end loop;
   dbms_sql.close_cursor(l_theCursor);
   p(HTF.TABLECLOSE);
+  if l_colCnt = 1 then
+    if round(p_width/(l_widest*6.2))>1.1 then
+      l_output(1):=replace(l_output(1),'<width>',round(l_widest*6.2));
+    else
+      l_output(1):=replace(l_output(1),'<width>',p_width);
+    end if;
+  end if;    
   output();
 exception
-  when others then   
+  when others then
     if DBMS_SQL.IS_OPEN(l_theCursor) then dbms_sql.close_cursor(l_theCursor);end if;
     p(p_query);
-    raise_application_error(-20000, 'print_table_html'||chr(10)||sqlerrm||chr(10)||p_query);
+    raise_application_error(-20000, 'print_table_html'||chr(10)||sqlerrm||chr(10)||DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
 end;
-    
+--^'||q'^
 procedure print_text_as_table(p_text clob, p_t_header varchar2, p_width number, p_search varchar2 default null, p_replacement varchar2 default null, p_comparison boolean default false) is
   l_line varchar2(32765);  l_eof number;  l_iter number; l_length number;
   l_text clob;
@@ -184,9 +192,25 @@ procedure print_text_as_table(p_text clob, p_t_header varchar2, p_width number, 
   l_style_comp2 varchar2(10) := 'awrncc1';  
   
   l_pref varchar2(10) := 'z';
+  type t_output_lines is table of varchar2(32767) index by pls_integer;
+  l_output t_output_lines;
+  l_widest number := 0;
+  l_indx number := 1;
+  procedure p(p_line varchar2) is
+  begin
+    l_output(l_indx):=p_line;
+    l_indx := l_indx + 1;
+  end;    
+  procedure p1(p_msg varchar2) is begin dbms_output.put_line(p_msg); end;
+  procedure output is
+  begin
+    for i in 1..l_output.count loop
+      p1(l_output(i));
+    end loop;
+  end;  
 begin
              
-  p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="'||p_width||'" class="tdiff" summary="'||p_t_header||'"'));
+  p(HTF.TABLEOPEN(cborder=>0,cattributes=>'width="<width>" class="tdiff" summary="'||p_t_header||'"'));
   if p_t_header<>'#FIRST_LINE#' then
     p(HTF.TABLEROWOPEN);
     p(HTF.TABLEHEADER(cvalue=>replace(p_t_header,' ','&nbsp;'),calign=>'left',cattributes=>'class="awrbg" scope="col"'));
@@ -209,7 +233,7 @@ begin
   loop
     l_eof:=instr(l_text,chr(10));
     l_line:=substr(l_text,1,l_eof);
-
+    if nvl(length(l_line),0)>l_widest then l_widest:=length(l_line); end if;
     if p_t_header='#FIRST_LINE#' and l_iter = 1 then
       p(HTF.TABLEROWOPEN);
       p(HTF.TABLEHEADER(cvalue=>replace(l_line,' ','&nbsp;'),calign=>'left',cattributes=>'class="awrbg" scope="col"'));
@@ -228,7 +252,7 @@ begin
       else
         l_line:=replace(l_line,' ','&nbsp;');
       end if;
-	  l_line:=replace(l_line,'`',' ');
+      l_line:=replace(l_line,'`',' ');
       if p_comparison and l_pref in ('-') then
         p(HTF.TABLEDATA(cvalue=>l_line,calign=>'left',cattributes=>'class="'|| case when mod(l_iter,2)=0 then l_style_comp1 else l_style_comp2 end ||'"'));
       else
@@ -242,4 +266,11 @@ begin
   end loop;
 
   p(HTF.TABLECLOSE);
+  
+  if round(p_width/(l_widest*6.2))>1.1 then
+    l_output(1):=replace(l_output(1),'<width>',round(l_widest*6.2));
+  else
+    l_output(1):=replace(l_output(1),'<width>',p_width);
+  end if;
+  output();  
 end;

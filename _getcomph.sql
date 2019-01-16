@@ -598,7 +598,9 @@ $END
   
 @@__procs
 
---^'||q'^  
+--==============================================================         
+--^'; l_script1 clob := q'^         
+--==============================================================
 
   procedure stim is
   begin
@@ -852,7 +854,7 @@ begin
   close l_all_sqls;
 
 --==============================================================         
---^'; l_script1 clob := q'^         
+--^'; l_script2 clob := q'^         
 --==============================================================
   
   <<query_list_loop>>
@@ -1317,21 +1319,13 @@ begin
                 for q in 1..l_max_ind loop
                   if l_tab1.exists(q) and l_tab2.exists(q) then               
                     if nvl(l_tab1(q),'#$%')<>nvl(l_tab2(q),'#$%') then
---p('-----------------------------');
---p(q);
---p('l_tab1(q):'||l_tab1(q));p('r1 1:'||r1);
---p('l_tab2(q):'||l_tab2(q));p('r2 1:'||r2);                        
---if q=1 then p('TRANSLATE l_tab1(q):'||trim(TRANSLATE(replace(replace(l_tab1(q),l_s_tag),l_e_tag),'-',' '))); end if;
                       if l_tab1(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null
                       then
                         r1:=replace(r1,l_tab1(q),l_fst1||replace(replace(replace(l_tab1(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
---p('r1 2:'||r1);                   
                       end if;   
---if q=1 then p('TRANSLATE l_tab2(q):'||trim(TRANSLATE(replace(replace(l_tab2(q),l_s_tag),l_e_tag),'-',' '))); end if;                
                       if l_tab2(q) is not null and trim(TRANSLATE(replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag),'-',' ')) is not null 
                       then
                         r2:=replace(r2,l_tab2(q),l_fst1||replace(replace(replace(l_tab2(q),'~`'||q||'`~'),l_s_tag),l_e_tag)||l_fst2);
---p('r2 2:'||r2);                       
                       end if;
                     end if;
                   end if;
@@ -1364,7 +1358,7 @@ begin
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);  
 --p('l_max_width:'||l_max_width);		
-        print_text_as_table(p_text => l_text, p_t_header => '', p_width => 3000, p_comparison => true);
+        print_text_as_table(p_text => l_text, p_t_header => '', p_width => round(l_max_width*6.2), p_comparison => true);
         p(HTF.BR);
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
         p(HTF.BR);
