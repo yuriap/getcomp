@@ -168,7 +168,7 @@ begin
   dbms_sql.close_cursor(l_theCursor);
   p(HTF.TABLECLOSE);
   if l_colCnt = 1 then
-    l_output(1):=replace(l_output(1),'<width>',round(l_widest*6.2));
+    l_output(1):=replace(l_output(1),'<width>',round(l_widest*8));
   end if;    
   l_output(1):=replace(l_output(1),'<width>',p_width);  
   output();

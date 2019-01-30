@@ -1358,7 +1358,7 @@ begin
         p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' Plans comparison for '||l_sql_id,cname=>'pl_'||a||'_'||b||'_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
         p(HTF.BR);  
 --p('l_max_width:'||l_max_width);		
-        print_text_as_table(p_text => l_text, p_t_header => '', p_width => round(l_max_width*2*6.2), p_comparison => true);
+        print_text_as_table(p_text => l_text, p_t_header => '', p_width => round(l_max_width*2*8), p_comparison => true);
         p(HTF.BR);
         p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#cmp_'||a||'_'||b||'_'||l_sql_id,ctext=>'Back to current comparison start',cattributes=>'class="awr"')));
         p(HTF.BR);
