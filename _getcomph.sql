@@ -524,6 +524,7 @@ $END
       ,sum(PHYSICAL_WRITE_REQUESTS_DELTA)PHY_WRITE_REQ_DELTA
       ,round(sum(BUFFER_GETS_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) LIO_PER_ROW
       ,round(sum(DISK_READS_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) IO_PER_ROW
+	  ,round(sum(CPU_TIME_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) CPU_PER_ROW
       ,round(sum(s.IOWAIT_DELTA)/decode(sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA), null, decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)),0,decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)), sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))/1000,3) as awg_IO_tim
       ,(sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))*0.005 as io_wait_5ms
       ,round((sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))/decode(sum(s.EXECUTIONS_DELTA), null, decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)),0,decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)), sum(s.EXECUTIONS_DELTA))*5) io_wait_pe_5ms
@@ -567,6 +568,7 @@ $END
       ,sum(PHYSICAL_WRITE_REQUESTS_DELTA)PHY_WRITE_REQ_DELTA
       ,round(sum(BUFFER_GETS_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) LIO_PER_ROW
       ,round(sum(DISK_READS_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) IO_PER_ROW
+	  ,round(sum(CPU_TIME_DELTA)/decode(sum(ROWS_PROCESSED_DELTA),0,null,sum(ROWS_PROCESSED_DELTA)),3) CPU_PER_ROW
       ,round(sum(s.IOWAIT_DELTA)/decode(sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA), null, decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)),0,decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)), sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))/1000,3) as awg_IO_tim
       ,(sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))*0.005 as io_wait_5ms
       ,round((sum(s.PHYSICAL_READ_REQUESTS_DELTA)+sum(s.PHYSICAL_WRITE_REQUESTS_DELTA))/decode(sum(s.EXECUTIONS_DELTA), null, decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)),0,decode(sum(DISK_READS_DELTA),0,1,sum(DISK_READS_DELTA)), sum(s.EXECUTIONS_DELTA))*5) io_wait_pe_5ms
@@ -962,9 +964,9 @@ begin
       p(HTF.BR);  
       p(HTF.header (4,cheader=>HTF.ANCHOR (curl=>'',ctext=>' ASH data for '||l_sql_id,cname=>'ash_'||l_sql_id,cattributes=>'class="awr"'),cattributes=>'class="awr"'));
       p(HTF.BR);
-      l_sql := replace(l_ash_data,'&l_sql_id',l_sql_id);
-      prepare_script_comp(l_sql, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
-      print_table_html(l_sql,1500,'ASH data',p_style1 =>'awrncbbt',p_style2 =>'awrcbbt');
+      --l_sql := replace(l_ash_data,'&l_sql_id',l_sql_id);
+      --prepare_script_comp(l_sql, l_dbid1, l_dbid2, l_start_snap1, l_end_snap1, l_start_snap2, l_end_snap2);
+      --print_table_html(l_sql,1500,'ASH data',p_style1 =>'awrncbbt',p_style2 =>'awrcbbt');
       p(HTF.BR);  
       p(HTF.LISTITEM(cattributes=>'class="awr"',ctext=>HTF.ANCHOR (curl=>'#sql_'||l_sql_id,ctext=>'Back to SQL: '||l_sql_id,cattributes=>'class="awr"')));
       p(HTF.BR);
@@ -1171,6 +1173,7 @@ begin
         pr(l_max_width,l_stat_ln,'ROWS:              '||r_stats1.ROWS_PROCESSED_DELTA,'ROWS:              '||r_stats2.ROWS_PROCESSED_DELTA,round(100*((r_stats2.ROWS_PROCESSED_DELTA-r_stats1.ROWS_PROCESSED_DELTA)/(case when r_stats1.ROWS_PROCESSED_DELTA=0 then case when r_stats2.ROWS_PROCESSED_DELTA=0 then 1 else r_stats2.ROWS_PROCESSED_DELTA end else r_stats1.ROWS_PROCESSED_DELTA end)),2)||'%');
         pr(l_max_width,l_stat_ln,'LIO/ROW:           '||r_stats1.LIO_PER_ROW,         'LIO/ROW:           '||r_stats2.LIO_PER_ROW,         round(100*((r_stats2.LIO_PER_ROW-r_stats1.LIO_PER_ROW)                  /(case when r_stats1.LIO_PER_ROW=0 then case when r_stats2.LIO_PER_ROW=0 then 1 else r_stats2.LIO_PER_ROW end else r_stats1.LIO_PER_ROW end)),2)||'%');
         pr(l_max_width,l_stat_ln,'PIO/ROW:           '||r_stats1.IO_PER_ROW,          'PIO/ROW:           '||r_stats2.IO_PER_ROW,          round(100*((r_stats2.IO_PER_ROW-r_stats1.IO_PER_ROW)                    /(case when r_stats1.IO_PER_ROW=0 then case when r_stats2.IO_PER_ROW=0 then 1 else r_stats2.IO_PER_ROW end else r_stats1.IO_PER_ROW end)),2)||'%');
+        pr(l_max_width,l_stat_ln,'CPU/ROW:           '||r_stats1.CPU_PER_ROW,         'CPU/ROW:           '||r_stats2.CPU_PER_ROW,         round(100*((r_stats2.CPU_PER_ROW-r_stats1.CPU_PER_ROW)                  /(case when r_stats1.CPU_PER_ROW=0 then case when r_stats2.CPU_PER_ROW=0 then 1 else r_stats2.CPU_PER_ROW end else r_stats1.CPU_PER_ROW end)),2)||'%');
         pr(l_max_width,l_stat_ln,'AVG IO (MS):       '||r_stats1.awg_IO_tim,          'AVG IO (MS):       '||r_stats2.awg_IO_tim,          round(100*((r_stats2.awg_IO_tim-r_stats1.awg_IO_tim)                    /(case when r_stats1.awg_IO_tim=0 then case when r_stats2.awg_IO_tim=0 then 1 else r_stats2.awg_IO_tim end else r_stats1.awg_IO_tim end)),2)||'%');      
         pr(l_max_width,l_stat_ln,'IOWT/EXEC(MS)5ms:  '||r_stats1.io_wait_pe_5ms,      'IOWT/EXEC(MS)5ms:  '||r_stats2.io_wait_pe_5ms,      round(100*((r_stats2.io_wait_pe_5ms-r_stats1.io_wait_pe_5ms)            /(case when r_stats1.io_wait_pe_5ms=0 then case when r_stats2.io_wait_pe_5ms=0 then 1 else r_stats2.io_wait_pe_5ms end else r_stats1.io_wait_pe_5ms end)),2)||'%');      
         pr(l_max_width,l_stat_ln,'IOWAIT(SEC)5ms:    '||r_stats1.io_wait_5ms,         'IOWAIT(SEC)5ms:    '||r_stats2.io_wait_5ms,         round(100*((r_stats2.io_wait_5ms-r_stats1.io_wait_5ms)                  /(case when r_stats1.io_wait_5ms=0 then case when r_stats2.io_wait_5ms=0 then 1 else r_stats2.io_wait_5ms end else r_stats1.io_wait_5ms end)),2)||'%');      

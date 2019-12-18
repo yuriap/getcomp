@@ -57,3 +57,5 @@ set timing on
 
 
 set define &
+
+set serveroutput off
