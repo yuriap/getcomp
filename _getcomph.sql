@@ -727,6 +727,10 @@ END;
 begin
 
 --^'||q'^
+$IF DBMS_DB_VERSION.VERSION>19
+$THEN
+htf.set_html_escaping_mode('N');
+$END
 
   if not l_embeded then 
     stim();
